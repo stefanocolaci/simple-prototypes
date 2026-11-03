@@ -113,7 +113,7 @@
 /* ============================ COSTANTI ============================ */
 const W = 960, H = 600;
 const SX = 480, SPY = 158, MY = 272;          // x e punta del rubinetto, y del bordo del boccale
-const DAY_LEN = 120;                            // durata di una giornata in secondi
+const dayTargetBase = d => Math.round((300 + 110*(d - 1)) / 10) * 10;   // obiettivo di punti per superare la giornata d (300, 410, 520, ...)
 const FINGER = 24;                              // 1 "dito" di schiuma = 24 px
 const MAXT = 68 * Math.PI / 180;
 // Tipi di birra: colore, colore schiuma, quanta schiuma fa (foamMul) e quanto resiste (decay)
@@ -246,7 +246,8 @@ let parts = [], bub = [];
 let last = null;
 let glassType = null;                       // tipo di birra nel boccale (segue il cliente in testa alla fila)
 let customers = [], sel = null, nextCustId = 1, spawnTimer = 0;
-let score = 0, served = 0, lives = 3;        // score = monete guadagnate in totale (record), wallet = monete spendibili
+let score = 0, served = 0, lives = 3;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
+let dayScore = 0, dayTarget = 300, dispScore = 0, dayCleared = false, dayClearTimer = 0;   // punti della giornata, obiettivo, valore mostrato dalla barra (si riempie in modo progressivo), giornata superata
 let wallet = 0, ups = {};                       // potenziamenti acquistati: id -> livello
 const lvl = id => ups[id] || 0;
 const UPGRADES = [
@@ -255,11 +256,11 @@ const UPGRADES = [
   { id: 'flow',  name: 'Rubinetto potenziato',    desc: 'Flusso più veloce, spilli prima',    max: 3, price: [40, 70, 110],  fx: ['+15% flusso', '+30% flusso', '+45% flusso'] },
   { id: 'pat',   name: 'Clienti pazienti',        desc: 'I clienti aspettano di più',         max: 3, price: [45, 80, 120],  fx: ['+10% attesa', '+20% attesa', '+30% attesa'] },
   { id: 'waste', name: 'Antispreco',              desc: 'Penalità ridotte per la birra sprecata', max: 3, price: [35, 60, 95], fx: ['−25% penalità', '−50% penalità', '−75% penalità'] },
-  { id: 'hours', name: 'Orario prolungato',       desc: 'La giornata dura di più',            max: 3, price: [60, 100, 150], fx: ['+20 secondi', '+40 secondi', '+60 secondi'] },
+  { id: 'goal',  name: 'Obiettivo ridotto',       desc: 'Servono meno punti per superare la giornata', max: 3, price: [60, 100, 150], fx: ['−8% obiettivo', '−16% obiettivo', '−24% obiettivo'] },
   { id: 'life',  name: 'Vita extra',              desc: 'Più margine di errore',              max: 1, price: [90],           fx: ['4 vite a giornata'] },
   { id: 'meter', name: 'Schiumometro',            desc: 'Schiuma e riempimento anche su telefono', max: 1, price: [70],      fx: ['pannello sempre visibile'], only: () => !LAND }
 ];
-let day = 1, dayTimeLeft = DAY_LEN, closing = false, dayLog = [], dayNotes = [];   // giornata corrente: tempo rimasto, chiusura, registro delle birre
+let day = 1, dayLog = [], dayNotes = [], roundCoins = null;   // giornata corrente: registro delle birre, note, monete del round
 let toast = null, shake = 0, wipe = 0, fx = [];
 let PZ = 1.25, PX0 = 365;                       // vista verticale: zoom e angolo sinistro della scena nel mondo
 let PY0 = 112;
@@ -272,8 +273,13 @@ let serveAnim = 0, serveRect = null;
 const JZ_H = 210;
 const jzReserve = () => JZ_H;                    // lo spazio in basso resta lo stesso in entrambe le modalità (nel joystick ovunque il pannello non si disegna, ma l'altezza non cambia)                               // altezza dell'area riservata al joystick
 const JZ_RX = Math.round((480 - 56 - 74) * 2 / 3);               // barra dell'inclinazione: un terzo più corta
-const jzGeom = () => LAND ? { ax: 712, ay: CH - 120, rx: 180, ry: 60 }                                   // desktop: in basso a destra
-                          : { ax: Math.round((CW - JZ_RX) / 2), ay: CH - JZ_H + 66, rx: JZ_RX, ry: 108 };   // telefono: T centrata nell'area in basso
+let fixedScale = clamp(parseFloat(localStorage.getItem('birra_fixedscale')) || 1, 0.4, 1);   // grandezza della T fissa: 1 = come prima (massimo), 0,4 = minimo
+const jzGeom = () => {                              // T fissa: la grandezza cambia ma il centro resta lo stesso, dentro al pannello
+  const f = fixedScale;
+  if (LAND){ const rx = Math.round(180*f), ry = Math.round(60*f); return { ax: 892 - rx, ay: Math.round(510 - ry/2), rx, ry }; }   // desktop: in basso a destra
+  const rx = Math.round(JZ_RX*f), ry = Math.round(108*f);                                                                             // telefono: T centrata nell'area in basso
+  return { ax: Math.round((CW - rx) / 2), ay: Math.round(CH - JZ_H + 100 - ry/2), rx, ry };
+};
 let FULL = false;                                // telefono: schermata a tutta altezza
 let LAND = true, CW = 960, CH = 600;      // layout orizzontale (PC) o verticale (telefono)
 
@@ -290,7 +296,6 @@ const seatCount     = () => seatsFor(day);
 const patienceFor   = () => Math.max(55, 90 - served*0.6) * (1 + 0.1*lvl('pat'));
 const spawnGap      = () => Math.max(10, 22 - served*0.4);
 const minQueue      = () => Math.min(seatCount(), 1 + Math.floor(served/6));   // clienti in attesa che il bar cerca di avere sempre
-const timeStr       = t => `${Math.floor(Math.ceil(t)/60)}:${String(Math.ceil(t)%60).padStart(2, '0')}`;
 const fmt = v => v.toFixed(1).replace('.', ',');
 const pick = a => a[Math.floor(Math.random()*a.length)];
 const SKINS = ['#f3c9a0', '#e0a878', '#c68a5a', '#8d5a3a', '#f7d9bd'];
@@ -314,36 +319,29 @@ function spawnCustomer(){
                    max: pat, t: pat, state: 'waiting', leave: 0, popup: null });
   return true;
 }
-function startClosing(){
-  closing = true; flash('Ultimi clienti: si chiude!');
-  for (const c of customers) if (c.state === 'waiting') c.t = Math.min(c.t, 20);
-}
 function updateCustomers(dt){
-  if (dayTimeLeft > 0){ dayTimeLeft -= dt; if (dayTimeLeft <= 0){ dayTimeLeft = 0; startClosing(); } }
   for (const c of customers){
     if (c.state === 'waiting'){
+      if (dayCleared) continue;                       // giornata superata: la pazienza si ferma
       c.t -= dt;
       if (c.t <= 0){
         c.state = 'gone'; c.leave = 2; c.popup = { text: 'Me ne vado!' };
-        if (!closing) lives--;            // a chiusura chi se ne va non costa una vita
-        shake = .4; ding(false);
+        lives--; shake = .4; ding(false);
         dayLog.push({ type: c.type, fingers: c.fingers, lost: true, score: 0, stars: 0 });
         if (sel === c.id) sel = null;
-        if (lives <= 0 && !closing){ endGame(); return; }
+        if (lives <= 0){ endGame(); return; }
       }
     } else c.leave -= dt;
   }
   customers = customers.filter(c => c.state === 'waiting' || c.leave > 0);
+  if (dayCleared){ dayClearTimer -= dt; if (dayClearTimer <= 0) endDay(); return; }
   spawnTimer -= dt;
-  if (!closing){
-    // niente tempi morti: se in sala ci sono pochi clienti, il prossimo arriva in fretta
-    if (customers.filter(c => c.state === 'waiting').length < minQueue() && spawnTimer > 1.5) spawnTimer = 1.5;
-    if (spawnTimer <= 0) spawnTimer = spawnCustomer() ? spawnGap() * (0.7 + Math.random()*0.6) : 1;
-  }
+  // niente tempi morti: se in sala ci sono pochi clienti, il prossimo arriva in fretta
+  if (customers.filter(c => c.state === 'waiting').length < minQueue() && spawnTimer > 1.5) spawnTimer = 1.5;
+  if (spawnTimer <= 0) spawnTimer = spawnCustomer() ? spawnGap() * (0.7 + Math.random()*0.6) : 1;
   // ordine FIFO: si serve sempre il cliente arrivato per primo tra quelli in attesa
   const first = customers.filter(c => c.state === 'waiting').sort((a, b) => a.id - b.id)[0];
   sel = first ? first.id : null;
-  if (closing && customers.length === 0) endDay();       // tempo scaduto e sala vuota: fine giornata
 }
 
 function emptyGlass(toPuddle){
@@ -354,7 +352,7 @@ function emptyGlass(toPuddle){
 }
 const SERVE_MIN = 0.95;                        // riempimento minimo per poter servire
 const fillFrac = () => (beer + foam) / CAP_UP;
-const canServe = () => mode === 'playing' && !!selCust() && fillFrac() >= SERVE_MIN;
+const canServe = () => mode === 'playing' && !dayCleared && !!selCust() && fillFrac() >= SERVE_MIN;
 function setGlass(key){                           // cambia boccale mantenendo la stessa percentuale di riempimento
   const n = GLASSES[key]; if (n === G) return;
   const r = n.cap / G.cap; beer *= r; foam *= r; spill *= r; bub = [];
@@ -367,40 +365,54 @@ function judge(c){
   const speedPts = 10 * clamp(c.t/c.max, 0, 1) * (fillPts/30);
   const spillPts = Math.min(15, spill / CAP_UP * 100 * 0.8) * (1 - 0.25*lvl('waste'));
   const s = Math.round(clamp(foamPts + fillPts + speedPts - spillPts, 0, 100));
-  // monete: da 0 a 10 per birra (componenti: schiuma max 6, riempimento max 3, velocità max 1, sprechi fino a −1,5)
-  return { score: Math.round(s/10), stars: s >= 85 ? 3 : s >= 60 ? 2 : s >= 30 ? 1 : 0, foamH: m.foamH, target, gap: m.gap,
-           foamPts: foamPts/10, fillPts: fillPts/10, speedPts: speedPts/10, spillPts: spillPts/10, wait: c.max - c.t };
+  // punti per birra: da 0 a 100 (schiuma max 60, riempimento max 30, velocità max 10, sprechi fino a −15)
+  return { score: s, stars: s >= 85 ? 3 : s >= 60 ? 2 : s >= 30 ? 1 : 0, foamH: m.foamH, target, gap: m.gap,
+           foamPts, fillPts, speedPts, spillPts, wait: c.max - c.t };
 }
 function deliver(c){
   const r = judge(c);
-  score += r.score; wallet += r.score; served++;
-  c.state = r.score >= 6 ? 'happy' : r.score >= 3 ? 'meh' : 'angry';
+  dayScore += r.score; score += r.score; served++;
+  c.state = r.score >= 60 ? 'happy' : r.score >= 30 ? 'meh' : 'angry';
   c.leave = 2.6; c.popup = r;
   if (sel === c.id) sel = null;
   ding(r.stars > 0, r.stars);
   wipe = .8;                       // il barista passa lo straccio: la birra caduta sparisce
   celebrate(c, r.stars);
   dayLog.push({ type: c.type, fingers: c.fingers, lost: false, ...r });
+  if (dayScore >= dayTarget && !dayCleared){ dayCleared = true; dayClearTimer = 1.5; flash('Obiettivo raggiunto!'); }
   emptyGlass(false); glassEnter = 1; glassHold = 0.5;   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
 }
 function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; startDay(); }
 function startDay(){
-  dayTimeLeft = DAY_LEN + 20*lvl('hours'); closing = false; dayLog = []; dayNotes = [];
+  dayScore = 0; dispScore = 0; dayCleared = false; dayClearTimer = 0; dayLog = []; dayNotes = [];
+  dayTarget = Math.round(dayTargetBase(day) * (1 - 0.08*lvl('goal')) / 10) * 10;
   lives = 3 + lvl('life'); gameTime = 0; customers = []; sel = null; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
   emptyGlass(false); glassEnter = 1; glassHold = 0.1; hideOverlay();
   const nb = day > 1 && unlockedFor(day) > unlockedFor(day - 1) ? ` · nuova birra: ${TYPES[TYPE_ORDER[unlockedFor(day) - 1]].name}` : '';
-  flash(`Giornata ${day}${nb}`);
+  flash(`Giornata ${day}: obiettivo ${dayTarget} punti${nb}`);
 }
 const starsStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
+function calcRoundCoins(){                          // monete di fine giornata: punti, media stelle, vite rimaste, birre perfette
+  const done = dayLog.filter(e => !e.lost), avg = done.length ? done.reduce((a, e) => a + e.stars, 0)/done.length : 0;
+  const base = Math.round(dayScore / 10), stars = Math.round(avg * 6), vite = lives * 4, perfect = done.filter(e => e.stars === 3).length * 2;
+  return { base, stars, vite, perfect, avg, perfectN: done.filter(e => e.stars === 3).length, total: base + stars + vite + perfect };
+}
 function summaryHTML(over){
-  const done = dayLog.filter(e => !e.lost), pts = dayLog.reduce((a, e) => a + e.score, 0), lost = dayLog.length - done.length;
+  const done = dayLog.filter(e => !e.lost), lost = dayLog.length - done.length;
   const avgN = done.length ? done.reduce((a, e) => a + e.stars, 0)/done.length : null;
   const stars = avgN === null ? '<p class="muted">Nessuna birra servita.</p>'
     : `<div class="stars">${[0, 1, 2].map(i => `<span class="${i < Math.round(avgN) ? '' : 'off'}">★</span>`).join('')}</div><p class="sumhead">Media ${fmt(avgN)} / 3 stelle</p>`;
   const notes = dayNotes.length ? `<p>${dayNotes.join('<br>')}</p>` : '';
+  const coin = '<i class="coin"></i>', rc = roundCoins;
+  const coins = over || !rc ? '' : `<table>
+      <tr><td>Punti ${dayScore} / ${dayTarget}</td><td>+${rc.base}${coin}</td></tr>
+      <tr><td>Media stelle ${fmt(rc.avg)}</td><td>+${rc.stars}${coin}</td></tr>
+      <tr><td>Vite rimaste ${lives}</td><td>+${rc.vite}${coin}</td></tr>
+      <tr><td>Birre perfette ${rc.perfectN}</td><td>+${rc.perfect}${coin}</td></tr></table>
+    <p class="sumhead">Monete guadagnate <b>+${rc.total}</b>${coin} · Portafoglio <b>${wallet}</b>${coin}</p>`;
   return `${stars}
     <p class="muted">Servite ${done.length} · Perse ${lost}</p>
-    <p class="sumhead">Incasso <b>+${pts}</b><i class="coin"></i> · ${over ? 'Totale guadagnato' : 'Portafoglio'} <b>${over ? score : wallet}</b><i class="coin"></i></p>${notes}`;
+    ${over ? `<p class="sumhead">Punti <b>${dayScore}</b> / ${dayTarget}</p>` : ''}${coins}${notes}`;
 }
 const soundLabel = () => muted ? 'Attiva suono' : 'Disattiva suono';
 const joyLabel = () => (joyMode === 'float' ? 'Controllo: joystick ovunque, tranne sul boccale' : 'Controllo: joystick fisso in basso') + ' — tocca per cambiare';
@@ -408,6 +420,13 @@ const floatTravel = () => {                         // corsa del dito in pixel d
   const k = cv.getBoundingClientRect().width / CW;
   return `≈ ${Math.round((LAND ? 260 : 290) * floatScale * k)} px in orizzontale, ${Math.round((LAND ? 130 : 150) * floatScale * k)} px in verticale`;
 };
+const fixedTravel = () => {                         // dimensioni reali della T sullo schermo
+  const g = jzGeom(), k = cv.getBoundingClientRect().width / CW;
+  return `≈ ${Math.round(g.rx * k)} px × ${Math.round(g.ry * k)} px`;
+};
+const fixedBox = () => joyMode !== 'fixed' ? '' : `<div class="scalebox"><label for="fxscale">Grandezza joystick: <b id="fxv">${Math.round(fixedScale*100)}%</b></label>
+    <input type="range" id="fxscale" min="40" max="100" step="5" value="${Math.round(fixedScale*100)}">
+    <p class="muted" id="fxt">${fixedTravel()} (barra × gamba). 100% = grandezza massima.</p></div>`;
 const scaleBox = () => joyMode !== 'float' ? '' : `<div class="scalebox"><label for="fscale">Corsa del dito: <b id="fsv">${Math.round(floatScale*100)}%</b></label>
     <input type="range" id="fscale" min="40" max="200" step="5" value="${Math.round(floatScale*100)}">
     <p class="muted" id="fst">${floatTravel()} per muovere gli slider al massimo. Più basso = basta muovere meno il dito.</p></div>`;
@@ -418,11 +437,12 @@ function pauseHTML(){
     const L = lvl(u.id), pips = Array.from({ length: u.max }, (_, i) => i < L ? '●' : '○').join('');
     return `<div class="brow"><div class="binfo"><b>${u.name}</b> <span class="pips">${pips}</span><div class="sub">${u.fx[L-1]}</div></div></div>`;
   }).join('');
-  return `<p class="sumhead">Potenziamenti attivi</p>
+  return `<p class="sumhead">Giornata ${day}: ${dayScore} / ${dayTarget} punti</p>
+    <p class="sumhead">Potenziamenti attivi</p>
     <div class="blist">${rows || '<p class="muted">Nessuno per ora: li trovi nel negozio a fine giornata.</p>'}</div>
     <button class="sec" data-act="help">Istruzioni e carta delle birre</button>
     <button class="sec" data-act="joymode">${joyLabel()}</button>
-    ${scaleBox()}
+    ${scaleBox()}${fixedBox()}
     <button class="sec" data-act="snd">${soundLabel()}</button>`;
 }
 function pauseGame(){
@@ -450,17 +470,19 @@ function helpHTML(){
     <li>Il getto sul bordo del boccale inclinato fa <b>poca schiuma</b>, quello dritto ne fa tanta, e un flusso basso ne fa ancora meno. La linea tratteggiata sul vetro mostra dove deve arrivare la birra: sopra c'è la schiuma richiesta.</li>
     <li>Quando il boccale è pieno almeno al 95% (e dritto) compare accanto al boccale il fumetto <b>SERVI ▶▶</b>: appoggia il dito sul fumetto o sul boccale e <b>trascinalo verso destra</b>: il boccale scivola insieme al dito e, arrivato in fondo, la birra viene consegnata al cliente in testa alla fila. Se lasci prima, il boccale torna al suo posto. Se il cliente se ne va, la birra nel boccale passa al prossimo. </li>
     <li>Ogni birra ha il suo carattere (quanta schiuma fa e quanto resiste): lo vedi nella <b>carta delle birre</b>. La Stout, per esempio, ha una schiuma cremosa che dura molto.</li>
-    <li>Ogni <b>giornata</b> dura 2 minuti. Ogni birra vale da 0 a 10 <b>monete</b>, da spendere nel <b>negozio</b> a fine giornata. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
-    <li>Se un cliente se ne va perdi una vita (3 per giornata).</li>
+    <li>Ogni <b>giornata</b> ha un <b>obiettivo di punti</b>, mostrato dalla barra in alto: non c'è limite di tempo. Ogni birra dà da 0 a 100 punti (schiuma, riempimento, velocità, sprechi). Raggiunto l'obiettivo la giornata è superata.</li>
+    <li>A fine giornata guadagni <b>monete</b> in base ai punti, alla media di stelle, alle vite rimaste e alle birre perfette: spendile nel <b>negozio</b> per potenziare il bar. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
+    <li>Se un cliente se ne va perdi una vita (3 per giornata). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
     <li>Il controllo è lo stesso su telefono e su PC (con il mouse): joystick fisso a T per versare e trascinamento della freccia SERVI per consegnare. Esc o P = pausa.</li>
   </ul></div>`;
 }
 function endDay(){
   emptyGlass(false); mode = 'summary'; flow = 0;
+  roundCoins = calcRoundCoins(); wallet += roundCoins.total;       // monete del round, da spendere nel negozio
   dayNotes = [];
   if (unlockedFor(day + 1) > unlockedFor(day)) dayNotes.push(`🍺 Domani in carta: ${TYPES[TYPE_ORDER[unlockedFor(day + 1) - 1]].name}`);
   if (seatsFor(day + 1) > seatsFor(day)) dayNotes.push('🪑 Domani si apre un nuovo posto al bancone');
-  showOverlay(`Giornata ${day} conclusa`, summaryHTML(false), 'Negozio', openShop);
+  showOverlay(`Giornata ${day} superata!`, summaryHTML(false), 'Negozio', openShop);
 }
 function shopHTML(){
   const rows = UPGRADES.filter(u => !u.only || u.only()).map(u => {
@@ -487,9 +509,10 @@ function buy(id){
 function endGame(){
   mode = 'over'; flow = 0;
   setTimeout(() => {
-    const prev = +(localStorage.getItem('birra_best_v3') || 0), best = Math.max(prev, score);
-    localStorage.setItem('birra_best_v3', best);
-    showOverlay(`Locale in rivolta! (giornata ${day})`, summaryHTML(true) + `<p>${score > prev ? '🏆 Nuovo record!' : 'Record: ' + best}</p>`, 'Gioca ancora', newGame);
+    const prev = JSON.parse(localStorage.getItem('birra_best_v4') || '{"day":0,"score":0}');
+    const better = day > prev.day || (day === prev.day && score > prev.score), best = better ? { day, score } : prev;
+    if (better) localStorage.setItem('birra_best_v4', JSON.stringify(best));
+    showOverlay(`Obiettivo mancato (giornata ${day})`, summaryHTML(true) + `<p>Giornate superate: <b>${day - 1}</b> · Punti totali: <b>${score}</b></p><p>${better ? '🏆 Nuovo record!' : `Record: giornata ${best.day} (${best.score} punti)`}</p>`, 'Gioca ancora', newGame);
   }, 1300);
 }
 
@@ -542,6 +565,7 @@ function update(dt){
   puddle = Math.max(0, puddle - puddle*(wipe > 0 ? 5 : 0.02)*dt); wipe = Math.max(0, wipe - dt);
   updateFx(dt);
   shake = Math.max(0, shake - dt);
+  dispScore += (dayScore - dispScore) * Math.min(1, dt*5);       // la barra del punteggio si riempie in modo progressivo
   if (glassHold > 0) glassHold -= dt; else glassEnter = Math.max(0, glassEnter - dt/0.42);   // mezzo secondo di attesa, poi il boccale entra
   serveAnim = clamp(serveAnim + ((JZ && canServe() && tilt < 0.15) ? 6 : -6)*dt, 0, 1);       // il fumetto SERVI spunta quando la birra è servibile
   if (toast){ toast.t -= dt; if (toast.t <= 0) toast = null; }
@@ -885,6 +909,15 @@ function drawCustomers(){
     ctx.restore();
   }
 }
+function drawProgress(x, y, w, h){                  // barra del punteggio progressiva: si riempie fino all'obiettivo della giornata
+  const k = clamp(dispScore / dayTarget, 0, 1);
+  ctx.fillStyle = '#3a4670'; rr(x, y, w, h, h/2); ctx.fill();
+  if (k > 0.002){
+    const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, '#3d9be9'); g.addColorStop(1, k >= 1 ? '#3ddc97' : '#7ee2c3');
+    ctx.fillStyle = g; rr(x, y, Math.max(h, w*k), h, h/2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.3)'; for (const t of [1/3, 2/3]) ctx.fillRect(x + w*t - 1, y + 2, 2, h - 4);       // tacche a un terzo e due terzi
+}
 function drawHUD(){
   const sc = selCust(), cur = metrics().foamH / FINGER;
 
@@ -893,15 +926,15 @@ function drawHUD(){
   text('MONETE', 40, 48, 12, '#8fa0c8');
   text(String(wallet), 40, 78, 28, '#fff');
   text(`GIORNATA ${day}`, 248, 48, 12, '#8fa0c8', 'right');
-  text(timeStr(dayTimeLeft), 248, 74, 22, closing ? '#ff7a7a' : '#fff', 'right');
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(46 + i*26, 98, 9, i < lives ? '#ff5d6c' : '#3a4670');
+  text(`${Math.round(dispScore)} / ${dayTarget}`, 248, 74, 20, dayCleared ? '#3ddc97' : '#fff', 'right');
+  drawProgress(40, 86, 208, 14);
+  for (let i = 0; i < 3 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
   const n = unlockedCount();
   for (let i = 0; i < TYPE_ORDER.length; i++){
     const T = TYPES[TYPE_ORDER[i]], x = 152 + i*20;
-    if (i < n){ ctx.fillStyle = T.foam; circ(x, 104, 9); ctx.fillStyle = T.beer; circ(x, 105.5, 6.5); }
-    else { ctx.fillStyle = '#3a4670'; circ(x, 104, 8); text('?', x, 108, 11, '#6f7da6', 'center', 800); }
+    if (i < n){ ctx.fillStyle = T.foam; circ(x, 120, 9); ctx.fillStyle = T.beer; circ(x, 121.5, 6.5); }
+    else { ctx.fillStyle = '#3a4670'; circ(x, 120, 8); text('?', x, 124, 11, '#6f7da6', 'center', 800); }
   }
-  text('CARTA', 152, 128, 10, '#6f7da6', 'left', 800);
 
   // boccale
   ctx.fillStyle = 'rgba(16,23,43,.72)'; rr(24, 150, 240, 212, 14); ctx.fill();
@@ -1066,7 +1099,7 @@ function drawFloatJoystick(){                       // modalità "ovunque": una 
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(floatX0, floatY0, 12, 0, 7); ctx.stroke();   // dove hai appoggiato il dito
 }
 function drawJoystickZone(){                         // T fissa nell'area riservata in basso: barra = inclinazione, gamba = flusso
-  const y0 = CH - JZ_H, g = jzGeom(), W2 = LAND ? 18 : 22, KR = LAND ? 30 : 38;
+  const y0 = CH - JZ_H, g = jzGeom(), W2 = Math.max(11, (LAND ? 18 : 22) * fixedScale), KR = Math.max(17, (LAND ? 30 : 38) * fixedScale);   // spessore e cursore scalano con la T
   if (LAND){ ctx.fillStyle = 'rgba(10,15,30,.9)'; rr(676, 436, CW - 684, 156, 16); ctx.fill(); ctx.strokeStyle = '#2f3a5e'; ctx.lineWidth = 3; rr(676, 436, CW - 684, 156, 16); ctx.stroke(); }
   else { ctx.fillStyle = 'rgba(10,15,30,.82)'; rr(8, y0 + 4, CW - 16, JZ_H - 14, 18); ctx.fill(); ctx.strokeStyle = '#2f3a5e'; ctx.lineWidth = 3; rr(8, y0 + 4, CW - 16, JZ_H - 14, 18); ctx.stroke(); }
   const kx = g.ax + (touching ? joyRX : 0)*g.rx, ky = g.ay + (touching ? joyRY : 0)*g.ry;
@@ -1134,15 +1167,9 @@ function drawStrip(){                               // telefono: striscia in cim
   ctx.save(); ctx.translate(0, -126);
   ctx.fillStyle = 'rgba(16,23,43,.92)'; rr(8, 136, 464, 40, 12); ctx.fill();
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
-  text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(timeStr(dayTimeLeft), 92, 169, 19, closing ? '#ff7a7a' : '#fff');
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(166 + i*23, 160, 8, i < lives ? '#ff5d6c' : '#3a4670');
-  const n = unlockedCount();
-  text('CARTA', 268, 150, 9, '#8fa0c8');
-  for (let i = 0; i < TYPE_ORDER.length; i++){
-    const T = TYPES[TYPE_ORDER[i]], x = 276 + i*24;
-    if (i < n){ ctx.fillStyle = T.foam; circ(x, 162, 9); ctx.fillStyle = T.beer; circ(x, 163.5, 6.5); }
-    else { ctx.fillStyle = '#3a4670'; circ(x, 162, 8); text('?', x, 166, 11, '#6f7da6', 'center', 800); }
-  }
+  text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(`${Math.round(dispScore)} / ${dayTarget}`, 296, 150, 9, dayCleared ? '#3ddc97' : '#fff', 'right', 800);
+  drawProgress(92, 156, 204, 14);
+  for (let i = 0; i < 3 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
   ctx.restore();
 }
 function drawMetersStrip(){               // schiumometro: striscia in alto nella scena, a destra del rubinetto
@@ -1194,9 +1221,10 @@ function draw(){
     drawStrip();
     if (lvl('meter')) drawMetersStrip();
     drawToast(300, PSY + 60);
-    drawHintPill(CW/2, CH - jzReserve() - 40); drawServeBubble();
+    drawServeBubble();
   }
   if (mode !== 'menu' && joyMode === 'fixed') drawJoystickZone();       // con il joystick ovunque resta solo la piccola T che appare sotto il dito
+  if (!LAND) drawHintPill(CW/2, CH - 34);                                    // suggerimento: centrato e più in basso possibile, sopra al pannello del joystick
   if (joyMode === 'float' && touching && mode === 'playing') drawFloatJoystick();
   drawFx();
   ctx.restore();
@@ -1207,7 +1235,13 @@ const ov = document.getElementById('ov'), ovt = document.getElementById('ovt'), 
 let ovAction = null;
 function showOverlay(t, html, btn, cb){ ovt.textContent = t; ovb.innerHTML = html; ovbtn.textContent = btn; ovAction = cb; ov.classList.remove('hidden'); }
 function hideOverlay(){ ov.classList.add('hidden'); ovAction = null; }
-ovb.addEventListener('input', e => {                 // cursore della scala nel menu di pausa
+ovb.addEventListener('input', e => {                 // cursori nel menu di pausa
+  if (e.target.id === 'fxscale'){
+    fixedScale = clamp(e.target.value / 100, 0.4, 1); localStorage.setItem('birra_fixedscale', fixedScale);
+    document.getElementById('fxv').textContent = e.target.value + '%';
+    document.getElementById('fxt').textContent = fixedTravel() + ' (barra × gamba). 100% = grandezza massima.';
+    return;
+  }
   if (e.target.id !== 'fscale') return;
   floatScale = clamp(e.target.value / 100, 0.4, 2); localStorage.setItem('birra_floatscale', floatScale);
   document.getElementById('fsv').textContent = e.target.value + '%';
