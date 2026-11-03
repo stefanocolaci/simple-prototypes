@@ -152,7 +152,7 @@ function buildGlass(key){
 let VIS_R = 742;                                  // x massima visibile nel mondo: il boccale non deve uscire dallo schermo
 // inclinazione massima: il boccale (manico compreso) deve restare nella zona visibile anche nella vista verticale
 function maxTiltFor(g){
-  const pts = g.out.concat(g.handle ? [[128, -60], [128, 40]] : []);
+  const pts = g.out.concat(g.handle ? [[110, -60], [110, 40]] : []);
   for (let th = MAXT; th > 0.5; th -= 0.01){
     const k = Math.min(1, th/0.87), sm = k*k*(3 - 2*k), u = -(g.wt - 19)*sm, c = Math.cos(th), s = Math.sin(th);
     const cx = SX - (u*c + g.top*s);
@@ -255,7 +255,8 @@ const UPGRADES = [
 let day = 1, dayTimeLeft = DAY_LEN, closing = false, dayLog = [], dayNotes = [];   // giornata corrente: tempo rimasto, chiusura, registro delle birre
 let toast = null, shake = 0, wipe = 0, fx = [];
 let PZ = 1.25, PX0 = 365;                       // vista verticale: zoom e angolo sinistro della scena nel mondo
-const PY0 = 112, PSY = 178;                      // y mondo in alto nella scena, y canvas dove inizia la scena
+let PY0 = 112;
+const PSY = 178;                                 // altezza della fascia dei clienti in alto (telefono)                      // y mondo in alto nella scena, y canvas dove inizia la scena
 let glassEnter = 0, glassHold = 0;             // 1 -> 0: il nuovo boccale vuoto entra da sinistra, dopo una breve pausa (glassHold, secondi)
 let slideActive = false, slideX0 = 0, slideOff = 0;        // servire = trascinare il boccale verso destra (scivola con il dito)
 const SLIDE_DIST = 190;                        // distanza di trascinamento (unità di scena) per consegnare
@@ -669,14 +670,11 @@ function drawBG(){
   if (pw > 2){ ctx.fillStyle = 'rgba(242,168,29,.85)'; ctx.beginPath(); ctx.ellipse(480, 506, pw, 5, 0, 0, 7); ctx.fill(); }
 }
 function drawTap(){
-  if (LAND){                                         // corpo del rubinetto: solo su desktop (su telefono resterebbe dietro ai clienti)
-    ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
-    ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
-    ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
-  }
+  ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
+  ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
+  ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
   ctx.fillStyle = '#8e96aa'; poly([[462,110],[498,110],[492,152],[468,152]]); ctx.fill();
   ctx.fillStyle = '#6f7790'; rr(466, 150, 28, 9, 3); ctx.fill();
-  if (!LAND) return;
   // leva
   ctx.save(); ctx.translate(520, 80); ctx.rotate(-Math.PI/2 + flow*1.1);
   ctx.fillStyle = '#8e96aa'; rr(-6, -6, 74, 12, 6); ctx.fill();
@@ -1052,7 +1050,7 @@ function drawJoystickZone(){                         // T fissa nell'area riserv
   ctx.fillStyle = '#ffd54a'; circ(kx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(kx, ky, KR, 0, 7); ctx.stroke();
   text('inclina ▶', g.ax + g.rx, g.ay - W2 - 12, 13, '#cfd8f5', 'right', 800);
   const lx = kx + W2 + 12, flip = lx + 66 > (LAND ? 944 : CW - 8);                                  // etichetta a lato della gamba (a sinistra se manca spazio)
-  text('flusso ▼', flip ? kx - W2 - 12 : lx, g.ay + g.ry/2 + 5, 13, '#cfd8f5', flip ? 'right' : 'left', 800);
+  if (!touching) text('flusso ▼', flip ? kx - W2 - 12 : lx, g.ay + g.ry/2 + 5, 13, '#cfd8f5', flip ? 'right' : 'left', 800);   // mentre usi il joystick il cursore la coprirebbe
 }
 function drawToast(cx = 480, ty = 546){
   if (!toast) return;
@@ -1067,7 +1065,7 @@ function drawCustomersPortrait(){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
     ctx.save();
     if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.45)' : 'rgba(16,23,43,.74)';
+    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.4)' : 'rgba(16,23,43,.62)';
     rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
     if (!c){ text(i >= seats ? 'chiuso' : 'libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700); ctx.restore(); continue; }
     const frac = c.t / c.max, waiting = c.state === 'waiting';
@@ -1101,7 +1099,7 @@ function drawCustomersPortrait(){
   }
 }
 function drawStrip(){
-  ctx.fillStyle = 'rgba(16,23,43,.74)'; rr(8, 136, 464, 40, 12); ctx.fill();
+  ctx.fillStyle = 'rgba(16,23,43,.66)'; rr(8, 136, 464, 40, 12); ctx.fill();
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
   text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(timeStr(dayTimeLeft), 92, 169, 19, closing ? '#ff7a7a' : '#fff');
   for (let i = 0; i < 3 + lvl('life'); i++) heart(166 + i*23, 160, 8, i < lives ? '#ff5d6c' : '#3a4670');
@@ -1340,8 +1338,11 @@ function applyLayout(){
   if (FULL) wrap.append(pauseBtn); else ctlEl.append(pauseBtn);                          // telefono: pausa in alto a destra; PC: riga sotto la scena
   if (FULL){                                                                              // la scena occupa tutta l'altezza dello schermo
     CH = clamp(Math.round(CW * wrap.clientHeight / Math.max(1, wrap.clientWidth)), 730, 1100);
-    PZ = clamp((CH - PSY - JZ_H) / 480, 1.0, 1.45); PX0 = 400;
-  } else { CH = 600; PZ = 1.25; PX0 = 365; }
+    // il mondo parte dal bordo alto dello schermo (come su desktop): la spillatrice si vede intera, la parte alta passa dietro ai pannelli di clienti, vite e monete
+    PZ = clamp((CH - JZ_H - 45) / 500, 0.85, 1.5);          // la vaschetta (y 500) sta appena sopra il joystick
+    PX0 = 480 - 0.30 * (CW / PZ);                           // il boccale a riposo sta a circa il 30% da sinistra
+    PY0 = PSY / PZ;                                         // y mondo 0 = bordo alto del canvas
+  } else { CH = 600; PZ = 1.25; PX0 = 365; PY0 = 112; }
   VIS_R = port ? PX0 + CW / PZ - 4 : 742;
   for (const k in GLASSES) GLASSES[k].maxT = maxTiltFor(GLASSES[k]);
   resize();
