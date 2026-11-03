@@ -270,7 +270,7 @@ const SLIDE_DIST = 190;                        // distanza di trascinamento (uni
 const JZ = true;                                 // il joystick è sempre fisso in un'area riservata
 let serveAnim = 0, serveRect = null;
 const JZ_H = 210;
-const jzReserve = () => joyMode === 'fixed' ? JZ_H : 0;     // spazio in basso riservato al joystick grande (nel joystick ovunque non c'è)                                // altezza dell'area riservata al joystick
+const jzReserve = () => JZ_H;                    // lo spazio in basso resta lo stesso in entrambe le modalità (nel joystick ovunque il pannello non si disegna, ma l'altezza non cambia)                               // altezza dell'area riservata al joystick
 const JZ_RX = Math.round((480 - 56 - 74) * 2 / 3);               // barra dell'inclinazione: un terzo più corta
 const jzGeom = () => LAND ? { ax: 712, ay: CH - 120, rx: 180, ry: 60 }                                   // desktop: in basso a destra
                           : { ax: Math.round((CW - JZ_RX) / 2), ay: CH - JZ_H + 66, rx: JZ_RX, ry: 108 };   // telefono: T centrata nell'area in basso
