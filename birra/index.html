@@ -96,19 +96,11 @@
 </style>
 </head>
 <body>
-<div id="top"></div>
 <div id="wrap">
   <canvas id="c"></canvas>
   <div id="ov" class="overlay"><div class="card wide"><h1 id="ovt"></h1><div id="ovb"></div><button id="ovbtn"></button></div></div>
 </div>
-<div id="serverow"></div>
 <div id="ctl">
-  <label class="grp"><span class="lbl">Inclina</span>
-    <input id="tilt" type="range" min="0" max="68" value="0" step="1">
-    <span id="tiltv">0°</span>
-  </label>
-  <div id="lever" class="lever" title="Leva del flusso (W/S)"><div class="lt"></div><div class="lf"></div><div class="lk"></div></div>
-  <button id="serve">SERVI<small>Invio</small></button>
   <button id="pause" title="Pausa">⏸</button>
 </div>
 
@@ -241,17 +233,8 @@ let mode = 'menu';          // menu | playing | paused | summary | over
 let beer = 0, foam = 0, spill = 0, puddle = 0, tilt = 0, tiltT = 0, flow = 0, serveTimer = 0;
 let time = 0, gameTime = 0;
 let stream = null, hint = '';
-let ptrPour = false, keyPour = false, keyL = false, keyR = false, keyU = false, keyD = false;
-const CTRL_MODES = ['joy', 'finger', 'classic'];
-let ctrl = localStorage.getItem('birra_ctrl') || 'joy';              // joy = joystick flottante, finger = leva flottante + inclinazione automatica, classic = leva + slider
-if (!CTRL_MODES.includes(ctrl)) ctrl = 'joy';
-let oneFinger = ctrl !== 'classic', joystick = ctrl === 'joy';        // oneFinger = controllo col tocco sullo schermo (joystick o leva flottante)
-let anchorX = 0, joyX = 0, joyRX = 0, joyRY = 0;                      // joystick: punto di appoggio, spostamento (con zona morta) e grezzo
-const JOY_R = 120, JOY_RY = 60;                                       // corsa orizzontale (inclinazione) e verticale (flusso, metà); si riducono se premi vicino ai bordi
-let joyRx = JOY_R, joyRy = JOY_RY;
-let touching = false, fingerV = 0, anchorY = 0, touchX = 0, leverRange = 270;                                  // dito sullo schermo e sua altezza (0 = in basso, 1 = in alto)
-const AUTO_T0 = 45 * Math.PI / 180;                                 // inclinazione di partenza in modalità un dito
-let leverVal = 0;                               // leva del flusso: 0 = chiusa, 1 = tutta aperta (resta dove la lasci)
+let joyX = 0, joyRX = 0, joyRY = 0;                                   // joystick fisso a T: spostamento (con zona morta) e grezzo
+let touching = false, fingerV = 0;                                    // dito/mouse sul joystick e livello di flusso (0..1)
 let parts = [], bub = [];
 let last = null;
 let glassType = null;                       // tipo di birra nel boccale (segue il cliente in testa alla fila)
@@ -273,16 +256,22 @@ let day = 1, dayTimeLeft = DAY_LEN, closing = false, dayLog = [], dayNotes = [];
 let toast = null, shake = 0, wipe = 0, fx = [];
 let PZ = 1.25, PX0 = 365;                       // vista verticale: zoom e angolo sinistro della scena nel mondo
 const PY0 = 112, PSY = 178;                      // y mondo in alto nella scena, y canvas dove inizia la scena
-let JZ = false, serveAnim = 0, serveRect = null;      // JZ: telefono + joystick fisso nell'area riservata in basso
+let glassEnter = 0, glassHold = 0;             // 1 -> 0: il nuovo boccale vuoto entra da sinistra, dopo una breve pausa (glassHold, secondi)
+let slideActive = false, slideX0 = 0, slideOff = 0;        // servire = trascinare il boccale verso destra (scivola con il dito)
+const SLIDE_DIST = 190;                        // distanza di trascinamento (unità di scena) per consegnare
+const JZ = true;                                 // il joystick è sempre fisso in un'area riservata
+let serveAnim = 0, serveRect = null;
 const JZ_H = 210;                                // altezza dell'area riservata al joystick
-const jzGeom = () => ({ ax: 56, ay: CH - JZ_H + 66, rx: CW - 56 - 74, ry: 108 });   // T fissa: punto di partenza, corsa orizzontale e verticale
-let FULL = false;                                // telefono + un dito: schermata a tutta altezza
+const JZ_RX = Math.round((480 - 56 - 74) * 2 / 3);               // barra dell'inclinazione: un terzo più corta
+const jzGeom = () => LAND ? { ax: 712, ay: CH - 120, rx: 180, ry: 60 }                                   // desktop: in basso a destra
+                          : { ax: Math.round((CW - JZ_RX) / 2), ay: CH - JZ_H + 66, rx: JZ_RX, ry: 108 };   // telefono: T centrata nell'area in basso
+let FULL = false;                                // telefono: schermata a tutta altezza
 let LAND = true, CW = 960, CH = 600;      // layout orizzontale (PC) o verticale (telefono)
 
 /* ============================ CLIENTI ============================ */
 const TYPE_ORDER = ['lager', 'ipa', 'pils', 'weiss', 'rossa', 'stout'];
 const FINGER_CHOICES = [1, 1.5, 2, 2.5, 3];
-const SLOT_X = 772, SLOT_W = 172, SLOT_H = 112, SLOT_GAP = 8, SLOT_Y0 = 14;
+const SLOT_X = 772, SLOT_W = 172, SLOT_H = 98, SLOT_GAP = 6, SLOT_Y0 = 14;
 const slotRect = i => LAND ? { x: SLOT_X, y: SLOT_Y0 + i*(SLOT_H + SLOT_GAP), w: SLOT_W, h: SLOT_H }
                             : { x: 8 + i*118, y: 14, w: 111, h: 112 };
 const unlockedFor   = d => Math.min(TYPE_ORDER.length, d);            // una birra in più ogni giornata
@@ -328,7 +317,7 @@ function updateCustomers(dt){
       if (c.t <= 0){
         c.state = 'gone'; c.leave = 2; c.popup = { text: 'Me ne vado!' };
         if (!closing) lives--;            // a chiusura chi se ne va non costa una vita
-        shake = .4; ding(false); if (!closing) buzz([90, 50, 90]);
+        shake = .4; ding(false);
         dayLog.push({ type: c.type, fingers: c.fingers, lost: true, score: 0, stars: 0 });
         if (sel === c.id) sel = null;
         if (lives <= 0 && !closing){ endGame(); return; }
@@ -350,24 +339,17 @@ function updateCustomers(dt){
 
 function emptyGlass(toPuddle){
   if (toPuddle) puddle += (beer + foam) * 0.5;
-  beer = foam = spill = 0; glassType = null; tilt = tiltT = flow = 0; leverVal = 0; stream = null; bub = [];
+  beer = foam = spill = 0; glassType = null; tilt = tiltT = flow = 0; stream = null; bub = [];
   try { pourEl.currentTime = 0; } catch(e){}      // nuova birra: il suono riparte dall'inizio
   mode = 'playing';
 }
-const SERVE_MIN = 0.8;                         // riempimento minimo per poter servire
+const SERVE_MIN = 0.95;                        // riempimento minimo per poter servire
 const fillFrac = () => (beer + foam) / CAP_UP;
 const canServe = () => mode === 'playing' && !!selCust() && fillFrac() >= SERVE_MIN;
 function setGlass(key){                           // cambia boccale mantenendo la stessa percentuale di riempimento
   const n = GLASSES[key]; if (n === G) return;
   const r = n.cap / G.cap; beer *= r; foam *= r; spill *= r; bub = [];
   G = n; INN = n.inn; OUT = n.out; CAP_UP = n.cap;
-}
-function serve(){
-  if (mode !== 'playing') return;
-  const c = selCust();
-  if (!c){ flash('Nessun cliente da servire'); return; }
-  if (fillFrac() < SERVE_MIN){ flash("Riempi almeno l'80% per servire"); return; }
-  deliver(c);
 }
 function judge(c){
   const target = c.fingers * FINGER, m = metrics();
@@ -387,17 +369,16 @@ function deliver(c){
   c.leave = 2.6; c.popup = r;
   if (sel === c.id) sel = null;
   ding(r.stars > 0, r.stars);
-  buzz(r.stars >= 3 ? [40, 50, 40, 50, 40, 50, 110] : r.stars === 2 ? [40, 50, 40, 50, 70] : r.stars === 1 ? [45, 40, 45] : [140]);
   wipe = .8;                       // il barista passa lo straccio: la birra caduta sparisce
   celebrate(c, r.stars);
   dayLog.push({ type: c.type, fingers: c.fingers, lost: false, ...r });
-  emptyGlass(false);
+  emptyGlass(false); glassEnter = 1; glassHold = 0.5;   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
 }
 function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; startDay(); }
 function startDay(){
   dayTimeLeft = DAY_LEN + 20*lvl('hours'); closing = false; dayLog = []; dayNotes = [];
   lives = 3 + lvl('life'); gameTime = 0; customers = []; sel = null; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
-  emptyGlass(false); hideOverlay();
+  emptyGlass(false); glassEnter = 1; glassHold = 0.1; hideOverlay();
   const nb = day > 1 && unlockedFor(day) > unlockedFor(day - 1) ? ` · nuova birra: ${TYPES[TYPE_ORDER[unlockedFor(day) - 1]].name}` : '';
   flash(`Giornata ${day}${nb}`);
 }
@@ -413,8 +394,6 @@ function summaryHTML(over){
     <p class="sumhead">Incasso <b>+${pts}</b><i class="coin"></i> · ${over ? 'Totale guadagnato' : 'Portafoglio'} <b>${over ? score : wallet}</b><i class="coin"></i></p>${notes}`;
 }
 const soundLabel = () => muted ? 'Attiva suono' : 'Disattiva suono';
-const hapLabel = () => haptics ? 'Disattiva vibrazione' : 'Attiva vibrazione';
-const modeLabel = () => (ctrl === 'joy' ? 'Controllo: joystick (giù = flusso, destra = inclina)' : ctrl === 'finger' ? 'Controllo: un dito (inclinazione automatica)' : 'Controllo: classico (leva + slider)') + ' — tocca per cambiare';
 function pauseHTML(){
   const act = UPGRADES.filter(u => lvl(u.id) > 0);
   const rows = act.map(u => {
@@ -424,13 +403,11 @@ function pauseHTML(){
   return `<p class="sumhead">Potenziamenti attivi</p>
     <div class="blist">${rows || '<p class="muted">Nessuno per ora: li trovi nel negozio a fine giornata.</p>'}</div>
     <button class="sec" data-act="help">Istruzioni e carta delle birre</button>
-    <button class="sec" data-act="snd">${soundLabel()}</button>
-    ${hapticsOK ? `<button class="sec" data-act="hap">${hapLabel()}</button>` : '<p class="muted">Vibrazione non supportata da questo browser.</p>'}
-    <button class="sec" data-act="mode">${modeLabel()}</button>`;
+    <button class="sec" data-act="snd">${soundLabel()}</button>`;
 }
 function pauseGame(){
   if (mode !== 'playing') return;
-  mode = 'paused'; flow = 0; ptrPour = false; touching = false; if (hapticsOK) navigator.vibrate(0);
+  mode = 'paused'; flow = 0; touching = false;
   showPause();
 }
 function showPause(){ showOverlay('Pausa', pauseHTML(), 'Riprendi', () => { mode = 'playing'; hideOverlay(); }); }
@@ -448,17 +425,17 @@ function cartaHTML(){
 function helpHTML(){
   return `<div class="helplist">${cartaHTML()}<ul>
     <li>I clienti si servono in <b>ordine di arrivo</b>: il primo della fila è quello evidenziato (<b>PROSSIMO</b>). Il fumetto mostra tipo di birra e dita di schiuma richieste; la barra è la sua pazienza.</li>
-    <li><b>Joystick</b> (predefinito): l'area in basso allo schermo è riservata a una <b>T fissa</b>. Appoggia il dito sul cursore giallo e trascinalo: la barra orizzontale è l'inclinazione (verso destra inclina il boccale), la gamba verso il basso è il flusso (verso il basso lo aumenta, da goccia a getto pieno). Rilasciando il rubinetto si chiude e il boccale torna dritto. Il resto dello schermo non risponde al tocco.</li>
+    <li><b>Joystick</b>: l'area in basso allo schermo (su PC in basso a destra) è riservata a una <b>T fissa</b>. Appoggia il dito (o il mouse) sul cursore giallo e trascinalo: la barra orizzontale è l'inclinazione (verso destra inclina il boccale), la gamba verso il basso è il flusso (verso il basso lo aumenta, da goccia a getto pieno). Rilasciando il rubinetto si chiude e il boccale torna dritto. Il resto dello schermo non risponde al tocco.</li>
     <li>Il getto sul bordo del boccale inclinato fa <b>poca schiuma</b>, quello dritto ne fa tanta, e un flusso basso ne fa ancora meno. La linea tratteggiata sul vetro mostra dove deve arrivare la birra: sopra c'è la schiuma richiesta.</li>
-    <li>Quando il boccale è pieno almeno all'80% (e dritto) compare accanto al boccale il fumetto <b>SERVI</b>: toccalo per consegnare la birra al cliente in testa alla fila. Se il cliente se ne va, la birra nel boccale passa al prossimo. Su PC: Invio.</li>
+    <li>Quando il boccale è pieno almeno al 95% (e dritto) compare accanto al boccale il fumetto <b>SERVI ▶▶</b>: appoggia il dito sul fumetto o sul boccale e <b>trascinalo verso destra</b>: il boccale scivola insieme al dito e, arrivato in fondo, la birra viene consegnata al cliente in testa alla fila. Se lasci prima, il boccale torna al suo posto. Se il cliente se ne va, la birra nel boccale passa al prossimo. </li>
     <li>Ogni birra ha il suo carattere (quanta schiuma fa e quanto resiste): lo vedi nella <b>carta delle birre</b>. La Stout, per esempio, ha una schiuma cremosa che dura molto.</li>
     <li>Ogni <b>giornata</b> dura 2 minuti. Ogni birra vale da 0 a 10 <b>monete</b>, da spendere nel <b>negozio</b> a fine giornata. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
     <li>Se un cliente se ne va perdi una vita (3 per giornata).</li>
-    <li>Altri controlli: «Controllo» nel menu di pausa passa da joystick a un dito (inclinazione automatica) o classico (leva + slider). Su PC: Spazio = flusso massimo, ← → = inclina, Invio = servi, Esc/P = pausa.</li>
+    <li>Il controllo è lo stesso su telefono e su PC (con il mouse): joystick fisso a T per versare e trascinamento della freccia SERVI per consegnare. Esc o P = pausa.</li>
   </ul></div>`;
 }
 function endDay(){
-  emptyGlass(false); mode = 'summary'; flow = 0; buzz([40, 60, 40]);
+  emptyGlass(false); mode = 'summary'; flow = 0;
   dayNotes = [];
   if (unlockedFor(day + 1) > unlockedFor(day)) dayNotes.push(`🍺 Domani in carta: ${TYPES[TYPE_ORDER[unlockedFor(day + 1) - 1]].name}`);
   if (seatsFor(day + 1) > seatsFor(day)) dayNotes.push('🪑 Domani si apre un nuovo posto al bancone');
@@ -497,9 +474,6 @@ function endGame(){
 
 /* ============================ AUDIO ============================ */
 let ac = null, clickBuf, muted = false, wasOpen = false;
-let haptics = localStorage.getItem('birra_haptics') !== '0', hapticTimer = 0;
-const hapticsOK = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
-function buzz(p){ if (haptics && hapticsOK){ try { navigator.vibrate(p); } catch(e){} } }   // pattern in millisecondi
 // suono della birra che scende nel bicchiere (file audio): in loop, volume legato al flusso
 const pourEl = new Audio('audio/beer-pour.mp3');
 pourEl.loop = true; pourEl.preload = 'auto';
@@ -522,7 +496,6 @@ function pourSound(level, kind){
 }
 // "clac" della valvola quando si apre o si chiude il rubinetto
 function clack(open){
-  buzz(open ? 16 : 10);                                // scatto della valvola
   if (!ac || muted) return;
   const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
   o.type = 'triangle'; o.frequency.setValueAtTime(open ? 170 : 120, t); o.frequency.exponentialRampToValueAtTime(45, t + .09);
@@ -548,6 +521,7 @@ function update(dt){
   puddle = Math.max(0, puddle - puddle*(wipe > 0 ? 5 : 0.02)*dt); wipe = Math.max(0, wipe - dt);
   updateFx(dt);
   shake = Math.max(0, shake - dt);
+  if (glassHold > 0) glassHold -= dt; else glassEnter = Math.max(0, glassEnter - dt/0.42);   // mezzo secondo di attesa, poi il boccale entra
   serveAnim = clamp(serveAnim + ((JZ && canServe() && tilt < 0.15) ? 6 : -6)*dt, 0, 1);       // il fumetto SERVI spunta quando la birra è servibile
   if (toast){ toast.t -= dt; if (toast.t <= 0) toast = null; }
   const active = mode === 'playing';
@@ -562,28 +536,13 @@ function update(dt){
   if (mode === 'over' || mode === 'summary'){ updateParticles(dt); return; }
 
   const playing = mode === 'playing';
-  if (playing && oneFinger && joystick){
-    // joystick (quadrante in basso a destra): a destra si inclina il boccale, in basso aumenta il flusso; senza dito torna dritto
-    const jx = touching ? joyX : (keyR ? 1 : 0);
-    tiltT = (touching || keyPour) ? clamp(jx * G.maxT, 0, G.maxT) : 0;
-  } else if (playing && oneFinger){
-    // inclinazione automatica: 45° a boccale vuoto, si raddrizza man mano che sale il livello; senza dito torna dritto
-    tiltT = (touching || keyPour) ? Math.min(G.maxT, AUTO_T0 * clamp(1 - fillFrac()/0.75, 0, 1)) : 0;
-  } else if (playing){
-    if (keyL) tiltT += 0.95*dt;
-    if (keyR) tiltT -= 0.95*dt;
-    tiltT = clamp(tiltT, 0, G.maxT);
-  } else tiltT = 0;
+  // joystick fisso (T): a destra si inclina il boccale, in basso aumenta il flusso; senza dito/mouse il boccale torna dritto
+  tiltT = playing && touching ? clamp(joyX * G.maxT, 0, G.maxT) : 0;
   tilt += (tiltT - tilt) * (1 - Math.exp(-dt*9));
 
   // quale birra? Si decide al primo getto in base al cliente selezionato
   const sc = selCust();
-  if (playing){ if (keyU) leverVal = Math.min(1, leverVal + 0.9*dt); if (keyD) leverVal = Math.max(0, leverVal - 0.9*dt); }
-  // flusso = leva (risposta più fine in basso) oppure apertura totale con Spazio / mouse sulla scena (PC)
-  let target = playing ? Math.max(Math.pow(leverVal, 1.6), (ptrPour || keyPour) ? 1 : 0) : 0;
-  // un dito: più il dito sale, più il flusso è forte (da goccia a getto pieno); rilasciando si chiude
-  if (oneFinger && joystick) target = playing ? (touching ? (fingerV < 0.03 ? 0 : 0.05 + 0.95*Math.pow(fingerV, 1.4)) : keyPour ? 1 : 0) : 0;   // joystick: verso il basso = più flusso
-  else if (oneFinger) target = playing && (touching || keyPour) ? 0.06 + 0.94*Math.pow(keyPour ? 1 : fingerV, 1.5) : 0;
+  let target = playing && touching && fingerV >= 0.03 ? 0.05 + 0.95*Math.pow(fingerV, 1.4) : 0;
   // il tipo di birra segue il cliente in testa alla fila: se quello che stavi servendo se ne va,
   // la birra nel boccale resta e viene servita al prossimo (che ne cambia il tipo)
   if (sc){
@@ -591,6 +550,7 @@ function update(dt){
     glassType = sc.type;
   }
   if (target > 0 && !glassType) target = 0;
+  if (glassEnter > 0) target = 0;                       // finché il boccale sta entrando non si versa
   const gKey = glassType || (sc ? sc.type : 'lager');
   curType = TYPES[gKey]; BEER = curType.beer; FOAM = curType.foam; setGlass(gKey);
   flow = clamp(flow + clamp(target - flow, -8*dt, 6*dt), 0, 1);
@@ -602,8 +562,6 @@ function update(dt){
   stream = null;
   if (flow > 0.03){
     stream = computeStream(g, yT);
-    hapticTimer -= dt;
-    if (flow > 0.08 && hapticTimer <= 0){ buzz(Math.round(5 + flow*13)); hapticTimer = 0.17 - 0.1*flow; }
     const q = flow * 4300 * (CAP_UP / QREF) * (1 + 0.15*lvl('flow')) * dt;
     if (stream.kind === 'none'){ spill += q; puddle += q; }
     else {
@@ -629,6 +587,9 @@ function update(dt){
                                            r: 2 + Math.random()*3, c: fx > 0 ? FOAM : BEER, life: 2 });
   }
   beer = Math.max(0, beer); foam = Math.max(0, foam);
+  if (slideActive && !selCust()) slideActive = false;       // il cliente se n'è andato: gesto annullato
+  if (!slideActive) slideOff *= Math.exp(-dt*9);              // se lasci prima della fine, il boccale torna al suo posto
+  if (slideOff < 0.5 && !slideActive) slideOff = 0;
 
   // bollicine nella birra
   if (beer > 800 && bub.length < 40 && Math.random() < 14*dt){
@@ -645,14 +606,15 @@ function update(dt){
 
   // consiglio
   const m = metrics();
-  if (stream) hint = stream.kind === 'wall' ? 'Scivola sul bordo: poca schiuma' : stream.kind === 'none' ? 'Stai sprecando birra!' : flow < 0.45 ? 'Getto dritto ma lento: poca schiuma' : 'Getto dritto: fa tanta schiuma';
+  if (slideActive) hint = 'Trascina verso destra per servire';
+  else if (stream) hint = stream.kind === 'wall' ? 'Scivola sul bordo: poca schiuma' : stream.kind === 'none' ? 'Stai sprecando birra!' : flow < 0.45 ? 'Getto dritto ma lento: poca schiuma' : 'Getto dritto: fa tanta schiuma';
   else if (!glassType && !sc) hint = 'Aspetta un cliente...';
-  else if (!glassType) hint = oneFinger ? (joystick ? (JZ ? 'Joystick in basso: giù = flusso, destra = inclina' : 'Tieni premuto: giù = flusso, destra = inclina') : 'Tieni premuto e trascina in giù: più scendi, più flusso') : 'Inclina e alza la leva del flusso';
+  else if (!glassType) hint = 'Joystick: giù = flusso, destra = inclina';
   else if (!sc) hint = 'Nessun cliente in attesa';
   else if (m.foamH > sc.fingers*FINGER + 6) hint = 'Troppa schiuma: lasciala assestare';
-  else if (fillFrac() < SERVE_MIN) hint = oneFinger && !touching ? (joystick ? (JZ ? 'Joystick in basso: giù = flusso, destra = inclina' : 'Tieni premuto: giù = flusso, destra = inclina') : 'Tieni premuto e trascina in giù per versare') : 'Riempi almeno l\'80% per servire';
+  else if (fillFrac() < SERVE_MIN) hint = !touching ? 'Joystick: giù = flusso, destra = inclina' : `Riempi almeno il ${Math.round(SERVE_MIN*100)}% per servire`;
   else if (m.gap > 6) hint = 'Manca ancora un po\' per arrivare al bordo';
-  else hint = 'Quasi pronto: premi SERVI';
+  else hint = 'Pronto: trascina la freccia verso destra';
 
   // audio
   pourSound(stream ? flow : 0, stream ? stream.kind : '', clamp((beer + foam)/CAP_UP, 0, 1));
@@ -679,10 +641,10 @@ const BOTTLES = [];
   while (x < W){ const w = 20 + (i*7)%10, h = 56 + (i*13)%34; BOTTLES.push({ x, w, h, c: cols[i%4] }); x += w + 14 + (i*5)%14; i++; } })();
 
 function drawBG(){
-  ctx.fillStyle = '#22304f'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255,255,255,.035)'; for (let x = 0; x < W; x += 160) ctx.fillRect(x, 0, 80, 500);
-  // lampade
-  for (const x of [170, 790]){
+  ctx.fillStyle = '#22304f'; ctx.fillRect(0, -500, W, H + 500);
+  ctx.fillStyle = 'rgba(255,255,255,.035)'; for (let x = 0; x < W; x += 160) ctx.fillRect(x, -500, 80, 1000);
+  // lampade (solo desktop: su telefono finirebbero dietro ai clienti)
+  if (LAND) for (const x of [170, 790]){
     ctx.fillStyle = '#10172b'; ctx.fillRect(x-2, 0, 4, 52);
     ctx.fillStyle = 'rgba(255,211,107,.12)'; circ(x, 76, 62);
     ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.arc(x, 74, 24, Math.PI, 0); ctx.lineTo(x+24, 80); ctx.lineTo(x-24, 80); ctx.fill();
@@ -707,17 +669,21 @@ function drawBG(){
   if (pw > 2){ ctx.fillStyle = 'rgba(242,168,29,.85)'; ctx.beginPath(); ctx.ellipse(480, 506, pw, 5, 0, 0, 7); ctx.fill(); }
 }
 function drawTap(){
-  ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
-  ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
-  ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
+  if (LAND){                                         // corpo del rubinetto: solo su desktop (su telefono resterebbe dietro ai clienti)
+    ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
+    ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
+    ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
+  }
   ctx.fillStyle = '#8e96aa'; poly([[462,110],[498,110],[492,152],[468,152]]); ctx.fill();
   ctx.fillStyle = '#6f7790'; rr(466, 150, 28, 9, 3); ctx.fill();
+  if (!LAND) return;
   // leva
   ctx.save(); ctx.translate(520, 80); ctx.rotate(-Math.PI/2 + flow*1.1);
   ctx.fillStyle = '#8e96aa'; rr(-6, -6, 74, 12, 6); ctx.fill();
   ctx.fillStyle = BEER; circ(68, 0, 11); ctx.restore();
   ctx.fillStyle = '#6f7790'; circ(520, 80, 9);
 }
+const enterOffsetWorld = () => glassEnter <= 0 ? 0 : -(480 + G.wmax + 24 - (LAND ? 0 : PX0)) * Math.pow(glassEnter, 3);   // ease-out cubico: parte veloce, arriva morbido
 function drawGlass(carry){
   const g = geom(tilt);
   const yB = levelFor(g.ip, beer), yT = levelFor(g.ip, beer + foam), H = G.bot - G.top;
@@ -1050,45 +1016,29 @@ function outlined(str, x, y, size, color, align){    // testo con contorno scuro
   ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(16,23,43,.9)'; ctx.strokeText(str, x, y);
   ctx.fillStyle = color; ctx.fillText(str, x, y);
 }
-function drawJoystick(){                             // a "T": la barra orizzontale è l'inclinazione, la gamba verso il basso è il flusso (agli estremi diventa una L rovesciata)
-  const g = LAND ? { x: CW - 200, y: CH - 150 } : { x: CW - 112, y: CH - 130 };
-  const rx = touching ? joyRx : 84, ry = touching ? joyRy : 42, KR = touching ? 30 : 20, W2 = touching ? 13 : 9;
-  const ax = touching ? anchorX : g.x, ay = touching ? anchorY : g.y;
-  const kx = ax + (touching ? joyRX : 0)*rx, ky = ay + (touching ? joyRY : 0)*ry;
-  ctx.globalAlpha = touching ? 1 : 0.7;
-  // barra orizzontale = inclinazione
-  ctx.fillStyle = 'rgba(16,23,43,.78)'; rr(ax - W2, ay - W2, rx + 2*W2, 2*W2, W2); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 3; rr(ax - W2, ay - W2, rx + 2*W2, 2*W2, W2); ctx.stroke();
-  if (kx - ax > 1){ ctx.fillStyle = '#ffd54a'; rr(ax - W2 + 4, ay - W2 + 4, kx - ax + 2*W2 - 8, 2*W2 - 8, W2 - 4); ctx.fill(); }
-  // gamba verso il basso = flusso: sempre visibile per tutta la sua corsa, sotto il cursore; si riempie fino al dito
-  ctx.fillStyle = 'rgba(16,23,43,.78)'; rr(kx - W2, ay - W2, 2*W2, ry + 2*W2, W2); ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.lineWidth = 3; rr(kx - W2, ay - W2, 2*W2, ry + 2*W2, W2); ctx.stroke();
-  if (ky - ay > 1){ ctx.fillStyle = '#3d9be9'; rr(kx - W2 + 4, ay - W2 + 4, 2*W2 - 8, ky - ay + 2*W2 - 8, W2 - 4); ctx.fill(); }
-  ctx.fillStyle = '#ffd54a'; circ(kx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(kx, ky, KR, 0, 7); ctx.stroke();
-  const fs = touching ? 12 : 10;
-  outlined('inclina ▶', ax + rx, ay - W2 - 8, fs, '#cfd8f5', 'right');
-  outlined('flusso ▼', kx, ay + ry + W2 + 20, fs, '#cfd8f5', 'center');
-  ctx.globalAlpha = 1;
-}
-function drawServeBubble(){                          // fumetto SERVI a lato del boccale, verso la parte alta
+const wx = x => LAND ? x : (x - PX0)*PZ, wy = y => LAND ? y : PSY + (y - PY0)*PZ;      // mondo -> canvas
+function drawServeBubble(){                          // freccia SERVI verso destra, ben staccata dal boccale e all'altezza del centro della birra
   serveRect = null;
   if (serveAnim <= 0.02) return;
-  const bw = 138, bh = 54, edge = (480 + G.wmax + (G.handle ? 64 : 0) + 14 - PX0)*PZ;
-  const x = Math.min(edge, CW - 8 - bw), y = PSY + (G.my - PY0)*PZ + 8, k = serveAnim;
-  const sc = 0.6 + 0.4*(1 - Math.pow(1 - k, 3)) + 0.04*k*Math.sin(time*7), tx = x - 12, ty = y + bh/2;
+  const bw = 176, bh = 66, head = 44, edge = wx(480 + G.wmax + (G.handle ? 64 : 0) + 14) + 34;
+  const x = Math.min(edge, (LAND ? 768 : CW - 8) - bw) + (slideActive ? slideOff : 0);
+  const cyc = wy(G.my + (G.bot - G.top)/2), y = cyc - bh/2, k = serveAnim;          // centro verticale del boccale
+  const sc = 0.6 + 0.4*(1 - Math.pow(1 - k, 3)) + 0.04*k*Math.sin(time*7), tx = x, ty = cyc;
+  const arrow = () => poly([[x, y + 10], [x + bw - head, y + 10], [x + bw - head, y], [x + bw, cyc], [x + bw - head, y + bh], [x + bw - head, y + bh - 10], [x, y + bh - 10]]);
   ctx.save(); ctx.globalAlpha = k; ctx.translate(tx, ty); ctx.scale(sc, sc); ctx.translate(-tx, -ty);
   ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#3ddc97';
-  poly([[x + 4, ty - 11], [tx, ty], [x + 4, ty + 11]]); ctx.fill(); ctx.stroke();
-  rr(x, y, bw, bh, 18); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#3ddc97'; ctx.fillRect(x - 1, ty - 9, 7, 18);                    // copre la giunzione fra coda e fumetto
-  text('SERVI', x + bw/2, y + bh/2 + 9, 26, '#10172b', 'center', 900);
+  arrow(); ctx.fill(); ctx.stroke();
+  if (slideActive && slideOff > 1){                                                   // avanzamento del trascinamento
+    ctx.save(); arrow(); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(x, y, bw*Math.min(1, slideOff/SLIDE_DIST), bh); ctx.restore();
+  }
+  text('SERVI', x + (bw - head)/2 + 4, cyc + 9, 26, '#10172b', 'center', 900);
   ctx.restore();
   serveRect = { x, y, w: bw, h: bh };
 }
 function drawJoystickZone(){                         // T fissa nell'area riservata in basso: barra = inclinazione, gamba = flusso
-  const y0 = CH - JZ_H, g = jzGeom(), W2 = 22, KR = 38;
-  ctx.fillStyle = 'rgba(10,15,30,.94)'; ctx.fillRect(0, y0, CW, JZ_H);
-  ctx.fillStyle = '#2f3a5e'; ctx.fillRect(0, y0, CW, 3);
+  const y0 = CH - JZ_H, g = jzGeom(), W2 = LAND ? 18 : 22, KR = LAND ? 30 : 38;
+  if (LAND){ ctx.fillStyle = 'rgba(10,15,30,.9)'; rr(676, 436, CW - 684, 156, 16); ctx.fill(); ctx.strokeStyle = '#2f3a5e'; ctx.lineWidth = 3; rr(676, 436, CW - 684, 156, 16); ctx.stroke(); }
+  else { ctx.fillStyle = 'rgba(10,15,30,.82)'; rr(8, y0 + 4, CW - 16, JZ_H - 14, 18); ctx.fill(); ctx.strokeStyle = '#2f3a5e'; ctx.lineWidth = 3; rr(8, y0 + 4, CW - 16, JZ_H - 14, 18); ctx.stroke(); }
   const kx = g.ax + (touching ? joyRX : 0)*g.rx, ky = g.ay + (touching ? joyRY : 0)*g.ry;
   ctx.lineJoin = 'round'; ctx.lineWidth = 3;
   ctx.fillStyle = '#1d2742'; ctx.strokeStyle = 'rgba(255,255,255,.4)';
@@ -1101,32 +1051,8 @@ function drawJoystickZone(){                         // T fissa nell'area riserv
   }
   ctx.fillStyle = '#ffd54a'; circ(kx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(kx, ky, KR, 0, 7); ctx.stroke();
   text('inclina ▶', g.ax + g.rx, g.ay - W2 - 12, 13, '#cfd8f5', 'right', 800);
-  text('flusso ▼', kx, g.ay + g.ry + W2 + 28, 13, '#cfd8f5', 'center', 800);
-}
-function drawFlowGauge(){
-  if (joystick){ if (JZ){ drawJoystickZone(); return; } if (touching || (mode === 'playing' && fillFrac() < SERVE_MIN)) drawJoystick(); return; }
-  const KR = 16;                                     // raggio del cursore
-  if (touching){                                     // leva flottante: la corsa è ancorata a dove hai premuto, verso il basso
-    const lx = touchX < CW - 90 ? touchX + 52 : touchX - 52, yt = anchorY, yb = anchorY + leverRange, ky = yt + leverRange*fingerV;
-    ctx.fillStyle = 'rgba(16,23,43,.55)'; rr(lx - 15, yt - 15, 30, leverRange + 30, 15); ctx.fill();
-    ctx.fillStyle = '#3d9be9'; rr(lx - 10, yt - 3, 20, ky - yt + 6, 10); ctx.fill();
-    ctx.fillStyle = '#ffd54a'; circ(lx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(lx, ky, KR, 0, 7); ctx.stroke();
-    text('goccia', lx, yt - 24, 9, '#cfd8f5', 'center', 700); text('MAX', lx, yb + 32, 10, '#cfd8f5', 'center', 800);
-    return;
-  }
-  const z = flowZone(), h = z.yLo - z.yHi, on = keyPour;
-  ctx.fillStyle = 'rgba(16,23,43,.5)'; rr(z.x - 15, z.yHi - 15, 30, h + 30, 15); ctx.fill();
-  if (on){
-    ctx.fillStyle = '#3d9be9'; rr(z.x - 10, z.yHi - 3, 20, h + 6, 10); ctx.fill();
-    ctx.fillStyle = '#ffd54a'; circ(z.x, z.yLo, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(z.x, z.yLo, KR, 0, 7); ctx.stroke();
-  } else if (mode === 'playing' && fillFrac() < SERVE_MIN){        // invito: frecce che scendono
-    for (let i = 0; i < 3; i++){
-      const k = ((time*0.9 + i/3) % 1), y = z.yHi + k*h*0.75 + 12;
-      ctx.strokeStyle = `rgba(255,255,255,${.7*(1 - k)})`; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.moveTo(z.x - 7, y - 5); ctx.lineTo(z.x, y + 3); ctx.lineTo(z.x + 7, y - 5); ctx.stroke();
-    }
-  }
-  text('goccia', z.x, z.yHi - 24, 9, '#8fa0c8', 'center', 700); text('MAX', z.x, z.yLo + 32, 10, '#8fa0c8', 'center', 800);
+  const lx = kx + W2 + 12, flip = lx + 66 > (LAND ? 944 : CW - 8);                                  // etichetta a lato della gamba (a sinistra se manca spazio)
+  text('flusso ▼', flip ? kx - W2 - 12 : lx, g.ay + g.ry/2 + 5, 13, '#cfd8f5', flip ? 'right' : 'left', 800);
 }
 function drawToast(cx = 480, ty = 546){
   if (!toast) return;
@@ -1141,7 +1067,7 @@ function drawCustomersPortrait(){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
     ctx.save();
     if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.09)';
+    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.45)' : 'rgba(16,23,43,.74)';
     rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
     if (!c){ text(i >= seats ? 'chiuso' : 'libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700); ctx.restore(); continue; }
     const frac = c.t / c.max, waiting = c.state === 'waiting';
@@ -1175,7 +1101,7 @@ function drawCustomersPortrait(){
   }
 }
 function drawStrip(){
-  ctx.fillStyle = 'rgba(255,255,255,.07)'; rr(8, 136, 464, 40, 12); ctx.fill();
+  ctx.fillStyle = 'rgba(16,23,43,.74)'; rr(8, 136, 464, 40, 12); ctx.fill();
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
   text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(timeStr(dayTimeLeft), 92, 169, 19, closing ? '#ff7a7a' : '#fff');
   for (let i = 0; i < 3 + lvl('life'); i++) heart(166 + i*23, 160, 8, i < lives ? '#ff5d6c' : '#3a4670');
@@ -1217,30 +1143,28 @@ function draw(){
   if (LAND){
     drawBG();
     drawTap();
-    drawGlass(false);
+    ctx.save(); ctx.translate(slideOff + enterOffsetWorld(), 0); drawGlass(false); ctx.restore();
     drawParts();
     drawHUD();
     drawCustomers();
+    drawServeBubble();
     drawToast();
   } else {
-    ctx.fillStyle = '#161f35'; ctx.fillRect(0, 0, CW, CH);
-    drawCustomersPortrait();
-    drawStrip();
     ctx.save();
     ctx.translate(0, PSY);
-    ctx.beginPath(); ctx.rect(0, 0, CW, CH - PSY - (JZ ? JZ_H : 0)); ctx.clip();
-    ctx.scale(PZ, PZ); ctx.translate(-PX0, -PY0);   // scena zoomata, rubinetto tagliato in alto
+    ctx.scale(PZ, PZ); ctx.translate(-PX0, -PY0);   // lo sfondo riempie tutto lo schermo; clienti e joystick ci stanno sopra
     drawBG();
     drawTap();
-    drawGlass(false);
+    ctx.save(); ctx.translate(slideOff / PZ + enterOffsetWorld(), 0); drawGlass(false); ctx.restore();   // il boccale scivola con il dito
     drawParts();
     ctx.restore();
+    drawCustomersPortrait();
+    drawStrip();
     if (lvl('meter')) drawMetersStrip();
     drawToast(300, PSY + 60);
-    if (JZ){ drawHintPill(CW/2, CH - JZ_H - 40); drawServeBubble(); }
-    else if (FULL) drawHintPill(268, PSY + (516 - PY0)*PZ + 72); else drawHintPill(362, CH - 38);
+    drawHintPill(CW/2, CH - JZ_H - 40); drawServeBubble();
   }
-  if (oneFinger && mode !== 'menu') drawFlowGauge();
+  if (mode !== 'menu') drawJoystickZone();
   drawFx();
   ctx.restore();
 }
@@ -1254,79 +1178,39 @@ ovb.addEventListener('click', e => {
   const b = e.target.closest('[data-buy]'); if (b) buy(b.dataset.buy);
   const a = e.target.closest('[data-act="snd"]'); if (a){ muted = !muted; a.textContent = soundLabel(); a.blur(); }
   if (e.target.closest('[data-act="help"]')){ showOverlay('Istruzioni', helpHTML(), 'Indietro', showPause); return; }
-  const h = e.target.closest('[data-act="hap"]'); if (h){ haptics = !haptics; localStorage.setItem('birra_haptics', haptics ? '1' : '0'); h.textContent = hapLabel(); h.blur(); buzz(35); }
-  const m = e.target.closest('[data-act="mode"]'); if (m){
-    ctrl = CTRL_MODES[(CTRL_MODES.indexOf(ctrl) + 1) % CTRL_MODES.length]; oneFinger = ctrl !== 'classic'; joystick = ctrl === 'joy'; localStorage.setItem('birra_ctrl', ctrl);
-    touching = false; leverVal = 0; tiltT = 0; m.textContent = modeLabel(); m.blur(); applyLayout();
-  }
 });
 ovbtn.addEventListener('click', () => { audioInit(); if (ac && ac.state === 'suspended') ac.resume(); ovbtn.blur(); if (ovAction) ovAction(); });
 
 const toCanvas = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left)*W/r.width, y: (e.clientY - r.top)*H/r.height }; };
-const tiltEl = document.getElementById('tilt'), tiltV = document.getElementById('tiltv');
-tiltEl.addEventListener('input', () => { tiltT = tiltEl.value * Math.PI/180; });
-const leverEl = document.getElementById('lever'), leverKnob = leverEl.querySelector('.lk'), leverFill = leverEl.querySelector('.lf');
-let leverDrag = false;
-function moveLever(e){                              // la leva segue il dito e resta dove la lasci
-  const r = leverEl.getBoundingClientRect();
-  const v = 1 - (e.clientY - (r.top + 12)) / (r.height - 24);
-  leverVal = v < 0.04 ? 0 : clamp(v, 0, 1);
+function setJoystick(e){                             // joystick fisso (T): il cursore segue dito/mouse; giù = flusso, destra = inclinazione
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * CW / r.width, y = (e.clientY - r.top) * CH / r.height, g = jzGeom();
+  joyRX = clamp((x - g.ax) / g.rx, 0, 1); joyRY = clamp((y - g.ay) / g.ry, 0, 1);
+  joyX = joyRX < 0.03 ? 0 : joyRX; fingerV = clamp((joyRY - 0.06) / 0.94, 0, 1);
 }
-leverEl.addEventListener('pointerdown', e => { audioInit(); leverDrag = true; leverEl.setPointerCapture(e.pointerId); moveLever(e); e.preventDefault(); });
-leverEl.addEventListener('pointermove', e => { if (leverDrag) moveLever(e); });
-['pointerup','pointercancel'].forEach(ev => leverEl.addEventListener(ev, () => { leverDrag = false; }));
-leverEl.addEventListener('contextmenu', e => e.preventDefault());
-
-function setJoystick(e, first){                      // joystick flottante: si appoggia dove premi; giù = flusso, destra/sinistra = inclinazione
-  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * CW / r.width, y = (e.clientY - r.top) * CH / r.height;
-  if (JZ){                                           // joystick fisso: il cursore segue il dito sulla T disegnata in basso
-    const g = jzGeom();
-    joyRX = clamp((x - g.ax) / g.rx, 0, 1); joyRY = clamp((y - g.ay) / g.ry, 0, 1);
-    joyX = joyRX < 0.03 ? 0 : joyRX; fingerV = clamp((joyRY - 0.06) / 0.94, 0, 1);
-    return;
-  }
-  if (first){
-    anchorX = x; anchorY = y; joyX = joyRX = joyRY = 0; fingerV = 0;
-    joyRx = clamp(CW - 10 - x, 70, JOY_R); joyRy = clamp(CH - 10 - y, 40, JOY_RY);   // vicino ai bordi la corsa si accorcia, per poterla sempre completare
-    return;
-  }
-  joyRX = clamp((x - anchorX) / joyRx, 0, 1); joyRY = clamp((y - anchorY) / joyRy, 0, 1);   // solo il quadrante in basso a destra
-  joyX = joyRX < 0.08 ? 0 : joyRX;
-  fingerV = clamp((joyRY - 0.08) / 0.92, 0, 1);
-}
-const flowZone = () => LAND ? { yHi: 60, yLo: 210, x: 20 } : { yHi: PSY + 70, yLo: PSY + 205, x: CW - 24 };   // barra d'invito (corta)
-function setFinger(e, first){
-  if (joystick){ setJoystick(e, first); return; }                        // leva flottante come una vera spillatrice: parte da "goccia", tirando il dito verso il basso il flusso aumenta
-  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * CW / r.width, y = (e.clientY - r.top) * CH / r.height;
-  if (first){
-    const z = flowZone(); touchX = x; anchorY = y; fingerV = 0;
-    leverRange = clamp(Math.min(z.yLo - z.yHi, CH - y - 20), 60, z.yLo - z.yHi);   // vicino al bordo basso la corsa si accorcia
-    return;
-  }
-  let v = (y - anchorY) / leverRange;
-  if (v < 0){ anchorY = y; v = 0; }                  // salendo sopra lo zero, lo zero si sposta col dito
-  if (v > 1){ anchorY = y - leverRange; v = 1; }     // oltre il massimo, il massimo si sposta col dito
-  fingerV = v;
-}
+const inJoyZone = (px, py) => LAND ? (px >= 676 && py >= 436) : py >= CH - JZ_H;
 cv.addEventListener('pointerdown', e => {
   audioInit();
   if (!ov.classList.contains('hidden') || mode !== 'playing') return;
   const cap = () => { try { cv.setPointerCapture(e.pointerId); } catch(err){} };
-  if (JZ){                                           // schermo: solo il fumetto SERVI e il joystick in basso rispondono al tocco
-    const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * CW / r.width, py = (e.clientY - r.top) * CH / r.height;
-    if (serveRect && serveAnim > 0.6 && px >= serveRect.x - 8 && px <= serveRect.x + serveRect.w + 8 && py >= serveRect.y - 8 && py <= serveRect.y + serveRect.h + 8){ serve(); return; }
-    if (py >= CH - JZ_H){ touching = true; setFinger(e, true); cap(); }
-    return;
+  const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * CW / r.width, py = (e.clientY - r.top) * CH / r.height;
+  const onBubble = serveRect && px >= serveRect.x - 8 && px <= serveRect.x + serveRect.w + 8 && py >= serveRect.y - 8 && py <= serveRect.y + serveRect.h + 8;
+  const onGlass = px >= wx(480 - G.wmax - 10) && px <= wx(480 + G.wmax + (G.handle ? 64 : 0) + 10) && py >= wy(G.my) - 12 && py <= wy(TRAY_Y) + 6;
+  if (serveAnim > 0.6 && !slideActive && (onBubble || onGlass)){        // inizia lo slide: trascina la birra verso destra
+    slideActive = true; slideX0 = px; slideOff = 0; cap(); return;
   }
-  if (oneFinger){ touching = true; setFinger(e, true); cap(); return; }
-  if (!LAND) return;
-  ptrPour = true; cap();
+  if (inJoyZone(px, py)){ touching = true; setJoystick(e); cap(); }     // il resto dello schermo non risponde
 });
-cv.addEventListener('pointermove', e => { if (oneFinger && touching) setFinger(e); });
-['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, () => { ptrPour = false; touching = false; }));
+function slideMove(e){                              // il boccale segue il dito verso destra: raggiunta la distanza, la birra viene consegnata
+  const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * CW / r.width;
+  slideOff = Math.max(0, px - slideX0);
+  if (slideOff >= SLIDE_DIST){
+    slideActive = false; slideOff = 0;
+    const c = selCust(); if (c) deliver(c);
+  }
+}
+cv.addEventListener('pointermove', e => { if (slideActive) slideMove(e); else if (touching) setJoystick(e); });
+['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, () => { touching = false; slideActive = false; }));
 cv.addEventListener('contextmenu', e => e.preventDefault());
-cv.addEventListener('wheel', e => { e.preventDefault(); tiltT = clamp(tiltT + e.deltaY*0.0006, 0, MAXT); }, { passive: false });
-document.getElementById('serve').addEventListener('click', e => { e.target.blur(); serve(); });
 document.getElementById('pause').addEventListener('click', e => { e.target.blur(); pauseGame(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 
@@ -1335,27 +1219,9 @@ window.addEventListener('keydown', e => {
     if (mode === 'playing') pauseGame(); else if (mode === 'paused') ovbtn.click();
     return;
   }
-  if (!ov.classList.contains('hidden')){
-    if (e.code === 'Enter' || e.code === 'Space'){ e.preventDefault(); if (!e.repeat) ovbtn.click(); }
-    return;
-  }
-  switch (e.code){
-    case 'Space': keyPour = true; e.preventDefault(); break;
-    case 'ArrowUp': case 'KeyW': keyU = true; e.preventDefault(); break;
-    case 'ArrowDown': case 'KeyS': keyD = true; e.preventDefault(); break;
-    case 'ArrowLeft': case 'KeyA': keyL = true; e.preventDefault(); break;
-    case 'ArrowRight': case 'KeyD': keyR = true; e.preventDefault(); break;
-    case 'Enter': e.preventDefault(); if (!e.repeat) serve(); break;
-  }
+  if (!ov.classList.contains('hidden') && (e.code === 'Enter' || e.code === 'Space')){ e.preventDefault(); if (!e.repeat) ovbtn.click(); }
 });
-window.addEventListener('keyup', e => {
-  if (e.code === 'Space'){ keyPour = false; e.preventDefault(); }
-  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keyL = false;
-  if (e.code === 'ArrowUp' || e.code === 'KeyW') keyU = false;
-  if (e.code === 'ArrowDown' || e.code === 'KeyS') keyD = false;
-  if (e.code === 'ArrowRight' || e.code === 'KeyD') keyR = false;
-});
-window.addEventListener('blur', () => { keyPour = keyL = keyR = keyU = keyD = ptrPour = touching = false; leverDrag = false; });
+window.addEventListener('blur', () => { touching = false; slideActive = false; });
 
 /* ============================ TUTORIAL ANIMATO (popup iniziale) ============================ */
 const TUT_P = [[-40, 0], [40, 0], [30, 125], [-30, 125]];       // boccale del tutorial (coordinate locali)
@@ -1396,7 +1262,8 @@ function drawTutorial(tc){
 
   // boccale
   const k = Math.min(1, S.tilt/0.8), sm = k*k*(3 - 2*k), u = -24*sm, cs = Math.cos(S.tilt), sn = Math.sin(S.tilt);
-  const ox = 120 - u*cs, oy = 60 + u*sn, ip = TUT_P.map(p => xf(p, S.tilt, ox, oy)), A = area(TUT_P);
+  const slideT = t >= 8.8 ? 115*smooth01(8.8, 10.8, t) : 0;       // il boccale scivola verso destra insieme al dito
+  const ox = 120 - u*cs + slideT, oy = 60 + u*sn, ip = TUT_P.map(p => xf(p, S.tilt, ox, oy)), A = area(TUT_P);
   const yB = levelFor(ip, S.beer*A), yT = levelFor(ip, (S.beer + S.foam)*A);
   if (S.beer*A > 30){ c.fillStyle = '#f0b52c'; poly2(clip(ip, yB, true)); c.fill(); }
   if (S.foam*A > 30){
@@ -1419,7 +1286,7 @@ function drawTutorial(tc){
   c.setLineDash([6, 5]); c.strokeStyle = 'rgba(16,23,43,.55)'; c.lineWidth = 4; c.beginPath(); c.moveTo(-36, 30); c.lineTo(36, 30); c.stroke();
   c.strokeStyle = 'rgba(255,255,255,.95)'; c.lineWidth = 2; c.beginPath(); c.moveTo(-36, 30); c.lineTo(36, 30); c.stroke(); c.setLineDash([]);
   c.restore();
-  if (t >= 8.2 && t < 11.6){                                    // a fine versata: schiuma fino all'orlo, birra fino al tratteggio
+  if (t >= 8.2 && t < 8.4){                                     // a fine versata: schiuma fino all'orlo, birra fino al tratteggio
     c.font = '800 11px system-ui,sans-serif'; c.textAlign = 'left'; c.fillStyle = '#fffaea'; c.fillText('◀ schiuma', 170, 78); c.fillStyle = '#f0b52c'; c.fillText('◀ birra', 170, 132);
   }
 
@@ -1436,15 +1303,17 @@ function drawTutorial(tc){
     c.font = '800 10px system-ui,sans-serif'; c.fillStyle = '#cfd8f5'; c.textAlign = 'right'; c.fillText('inclina ▶', ax + rx, ay - 16);
     c.textAlign = 'center'; c.fillText('flusso ▼', kx, ay + ry + 24);
   }
-  // SERVI
-  if (t >= 8.6 && t < 11.6){
-    const p = 1 + 0.06*Math.sin((t - 8.6)*9);
-    c.save(); c.translate(330, 172); c.scale(p, p); c.fillStyle = '#3ddc97'; rr2(-52, -19, 104, 38, 12); c.fill();
-    c.fillStyle = '#10172b'; c.font = '800 18px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('SERVI', 0, 1); c.restore();
-    if (t > 9.8){ c.fillStyle = '#ffd54a'; c.font = '800 20px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText('★★★  +10', 330, 138); }
+  // slide di servizio: il dito trascina il boccale verso destra, piano
+  if (t >= 8.4 && t < 11.6){
+    const fx = 120 + slideT + 52, fy = 118;
+    c.fillStyle = 'rgba(255,255,255,.3)'; c.beginPath(); c.arc(fx, fy, 24 + 3*Math.sin(t*8), 0, 7); c.fill();
+    c.fillStyle = '#ffd54a'; c.beginPath(); c.arc(fx, fy, 13, 0, 7); c.fill(); c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
+    c.fillStyle = '#3ddc97'; c.font = '800 20px system-ui,sans-serif'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    if (t < 11.0) c.fillText('▶▶', fx + 34 + 6*Math.sin(t*6), fy);
+    else { c.fillStyle = '#ffd54a'; c.fillText('★★★  +10', 300, 120); }
   }
   // didascalia
-  const cap = t < 1.0 ? '1. Appoggia il dito sul joystick' : t < 5.3 ? '2. Destra = inclina · Giù = flusso' : t < 8.2 ? '3. Birra fino al tratteggio, poi raddrizza' : '4. Schiuma fino all\'orlo: premi SERVI';
+  const cap = t < 1.0 ? '1. Appoggia il dito sul joystick' : t < 5.3 ? '2. Destra = inclina · Giù = flusso' : t < 8.2 ? '3. Birra fino al tratteggio, poi raddrizza' : '4. Trascina il boccale a destra per servire';
   c.font = '800 14px system-ui,sans-serif'; const tw = c.measureText(cap).width + 28;
   c.fillStyle = 'rgba(16,23,43,.85)'; rr2(W/2 - tw/2, H - 40, tw, 28, 14); c.fill();
   c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(cap, W/2, H - 26);
@@ -1460,30 +1329,19 @@ function frame(t){
   update(dt);
   draw();
   const tutC = document.getElementById('tuto'); if (tutC) drawTutorial(tutC);      // video tutorial nel popup iniziale
-  tiltEl.value = Math.round(tiltT*180/Math.PI);
-  tiltV.textContent = Math.round(tilt*180/Math.PI) + '°';
-  leverKnob.style.bottom = `calc(${leverVal*100}% - ${leverVal*24}px - 2px)`; leverFill.style.height = `calc(${leverVal*100}% - ${leverVal*24}px)`;
-  const ok = canServe();
-  serveBtn.classList.toggle('show', ok);            // su telefono compare solo quando la birra è servibile
-  serveBtn.classList.toggle('off', !ok);            // su PC resta visibile ma attenuato
   requestAnimationFrame(frame);
 }
-const wrap = document.getElementById('wrap'), topEl = document.getElementById('top'), ctlEl = document.getElementById('ctl');
-const serveRow = document.getElementById('serverow'), pauseBtn = document.getElementById('pause'), serveBtn = document.getElementById('serve');
+const wrap = document.getElementById('wrap'), ctlEl = document.getElementById('ctl'), pauseBtn = document.getElementById('pause');
 function applyLayout(){
   const port = window.innerHeight > window.innerWidth * 1.1;
-  LAND = !port; FULL = port && oneFinger; JZ = FULL && joystick; CW = port ? 480 : 960;
+  LAND = !port; FULL = port; CW = port ? 480 : 960;
   document.body.classList.toggle('portrait', port);
-  document.body.classList.toggle('onefinger', oneFinger);
   document.body.classList.toggle('full', FULL);
-  document.body.classList.toggle('jz', JZ);
-  if (FULL) wrap.append(serveBtn, pauseBtn);                                              // SERVI in basso a destra, pausa in alto a destra
-  else if (port){ ctlEl.insertBefore(leverEl, ctlEl.firstChild); serveRow.append(serveBtn, pauseBtn); }   // leva a sinistra dello slider; SERVI + pausa sulla riga sopra
-  else ctlEl.append(leverEl, serveBtn, pauseBtn);
+  if (FULL) wrap.append(pauseBtn); else ctlEl.append(pauseBtn);                          // telefono: pausa in alto a destra; PC: riga sotto la scena
   if (FULL){                                                                              // la scena occupa tutta l'altezza dello schermo
     CH = clamp(Math.round(CW * wrap.clientHeight / Math.max(1, wrap.clientWidth)), 730, 1100);
-    PZ = clamp((CH - PSY - (JZ ? JZ_H : 0)) / (JZ ? 480 : 500), JZ ? 1.0 : 1.1, 1.45); PX0 = 400;
-  } else { CH = port ? 730 : 600; PZ = 1.25; PX0 = 365; }
+    PZ = clamp((CH - PSY - JZ_H) / 480, 1.0, 1.45); PX0 = 400;
+  } else { CH = 600; PZ = 1.25; PX0 = 365; }
   VIS_R = port ? PX0 + CW / PZ - 4 : 742;
   for (const k in GLASSES) GLASSES[k].maxT = maxTiltFor(GLASSES[k]);
   resize();
@@ -1492,9 +1350,7 @@ function applyLayout(){
   if (FULL){
     const kk = cv.offsetWidth / CW;                  // pausa all'estremità destra della striscia in alto
     pauseBtn.style.left = (cv.offsetLeft + 452*kk - 22) + 'px'; pauseBtn.style.top = (cv.offsetTop + 156*kk - 18) + 'px';
-    serveBtn.style.left = (cv.offsetLeft + (575 - PX0)*PZ*kk) + 'px';   // SERVI sul banco, a fianco del boccale
-    serveBtn.style.top = (cv.offsetTop + (PSY + (516 - PY0)*PZ)*kk) + 'px';
-  } else pauseBtn.style.left = pauseBtn.style.top = serveBtn.style.left = serveBtn.style.top = '';
+  } else pauseBtn.style.left = pauseBtn.style.top = '';
 }
 window.addEventListener('resize', applyLayout);
 window.addEventListener('orientationchange', () => setTimeout(applyLayout, 150));
