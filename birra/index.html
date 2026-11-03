@@ -265,6 +265,7 @@ let toast = null, shake = 0, wipe = 0, fx = [];
 let PZ = 1.25, PX0 = 365;                       // vista verticale: zoom e angolo sinistro della scena nel mondo
 let PY0 = 112;
 const PSY = 178;                                 // altezza della fascia dei clienti in alto (telefono)                      // y mondo in alto nella scena, y canvas dove inizia la scena
+let towerPos = -1, towerTgt = 0;                // torre spine: indice (frazionario) della spina allineata al boccale
 let glassEnter = 0, glassHold = 0;             // 1 -> 0: il nuovo boccale vuoto entra da sinistra, dopo una breve pausa (glassHold, secondi)
 let slideActive = false, slideX0 = 0, slideOff = 0;        // servire = trascinare il boccale verso destra (scivola con il dito)
 const SLIDE_DIST = 190;                        // distanza di trascinamento (unità di scena) per consegnare
@@ -286,9 +287,9 @@ let LAND = true, CW = 960, CH = 600;      // layout orizzontale (PC) o verticale
 /* ============================ CLIENTI ============================ */
 const TYPE_ORDER = ['lager', 'ipa', 'pils', 'weiss', 'rossa', 'stout'];
 const FINGER_CHOICES = [1, 1.5, 2, 2.5, 3];
-const SLOT_X = 772, SLOT_W = 172, SLOT_H = 98, SLOT_GAP = 6, SLOT_Y0 = 14;
+const SLOT_X = 760, SLOT_W = 184, SLOT_H = 96, SLOT_GAP = 6, SLOT_Y0 = 14;
 const slotRect = i => LAND ? { x: SLOT_X, y: SLOT_Y0 + i*(SLOT_H + SLOT_GAP), w: SLOT_W, h: SLOT_H }
-                            : { x: 8 + i*118, y: 64, w: 111, h: 112 };      // telefono: sotto la striscia dei dettagli della partita
+                            : { x: 480 - 8 - 120, y: 62 + i*72, w: 120, h: 68 };      // telefono: colonna in alto a destra, sotto la striscia dei dettagli della partita
 const unlockedFor   = d => Math.min(TYPE_ORDER.length, d);            // una birra in più ogni giornata
 const seatsFor      = d => Math.min(4, 2 + Math.max(0, d - 2));       // un posto in più ogni giornata, ma a partire dalla terza
 const unlockedCount = () => unlockedFor(day);
@@ -464,7 +465,7 @@ function cartaHTML(){
 }
 function helpHTML(){
   return `<div class="helplist">${cartaHTML()}<ul>
-    <li>I clienti si servono in <b>ordine di arrivo</b>: il primo della fila è quello evidenziato (<b>PROSSIMO</b>). Il fumetto mostra tipo di birra e dita di schiuma richieste; la barra è la sua pazienza.</li>
+    <li>I clienti si servono in <b>ordine di arrivo</b>: il primo della fila è quello evidenziato (<b>PROSSIMO</b>). Il fumetto mostra tipo di birra e dita di schiuma richieste e si colora di rosso dal basso man mano che la pazienza finisce.</li>
     <li><b>Joystick</b>: l'area in basso allo schermo (su PC in basso a destra) è riservata a una <b>T fissa</b>. Appoggia il dito (o il mouse) sul cursore giallo e trascinalo: la barra orizzontale è l'inclinazione (verso destra inclina il boccale), la gamba verso il basso è il flusso (verso il basso lo aumenta, da goccia a getto pieno). Rilasciando il rubinetto si chiude e il boccale torna dritto. Con questo controllo il resto dello schermo non risponde al tocco.</li>
     <li><b>Joystick ovunque</b> (si sceglie dal menu di pausa): appoggia il dito dove vuoi, tranne sul boccale. Il dito agisce come joystick flottante: conta lo spostamento da dove hai iniziato (destra = inclina, giù = flusso) e la T in basso resta al suo posto e mostra cosa stai facendo, senza il dito sopra.</li>
     <li>Il getto sul bordo del boccale inclinato fa <b>poca schiuma</b>, quello dritto ne fa tanta, e un flusso basso ne fa ancora meno. La linea tratteggiata sul vetro mostra dove deve arrivare la birra: sopra c'è la schiuma richiesta.</li>
@@ -598,6 +599,8 @@ function update(dt){
   if (glassEnter > 0) target = 0;                       // finché il boccale sta entrando non si versa
   const gKey = glassType || (sc ? sc.type : 'lager');
   curType = TYPES[gKey]; BEER = curType.beer; FOAM = curType.foam; setGlass(gKey);
+  if (glassHold <= 0) towerTgt = TYPE_ORDER.indexOf(gKey);        // la torre scorre quando entra il nuovo boccale
+  towerPos = towerPos < 0 ? towerTgt : towerPos + (towerTgt - towerPos)*(1 - Math.exp(-7*dt));
   flow = clamp(flow + clamp(target - flow, -8*dt, 6*dt), 0, 1);
   const isOpen = flow > 0.05;
   if (isOpen !== wasOpen){ clack(isOpen); wasOpen = isOpen; }
@@ -713,17 +716,37 @@ function drawBG(){
   const pw = Math.min(150, puddle / CAP_UP * 420);
   if (pw > 2){ ctx.fillStyle = 'rgba(242,168,29,.85)'; ctx.beginPath(); ctx.ellipse(480, 506, pw, 5, 0, 0, 7); ctx.fill(); }
 }
+function tapUnit(cx, s, ang, dot){                          // singola spina (flat): centro in x=0, spout che finisce a y~158
+  const M = '#c9ced9', MD = '#aab1c2', MK = '#8e96aa';
+  ctx.save(); ctx.translate(cx, 0); ctx.scale(s, s);
+  ctx.fillStyle = M; rr(-15, -30, 30, 110, 6); ctx.fill();                 // colonna
+  ctx.fillStyle = MD; ctx.fillRect(-15, -30, 9, 110);
+  ctx.fillStyle = MK; circ(0, 44, 36);                                      // medaglione
+  ctx.fillStyle = '#eef1f6'; circ(0, 44, 30);
+  ctx.fillStyle = dot; circ(0, 58, 11); ctx.fillStyle = 'rgba(255,255,255,.85)'; circ(0, 55, 5);
+  ctx.fillStyle = M; poly([[-22,84],[22,84],[32,112],[-32,112]]); ctx.fill();   // testa
+  ctx.fillStyle = MD; poly([[-22,84],[-12,84],[-18,112],[-32,112]]); ctx.fill();
+  ctx.fillStyle = MK; rr(-34, 106, 68, 12, 5); ctx.fill();
+  ctx.fillStyle = M; poly([[-13,118],[13,118],[10,146],[-10,146]]); ctx.fill(); // beccuccio
+  ctx.fillStyle = MD; poly([[-13,118],[-5,118],[-4,146],[-10,146]]); ctx.fill();
+  ctx.fillStyle = MK; rr(-15, 144, 30, 15, 4); ctx.fill();
+  ctx.save(); ctx.translate(0, 92); ctx.rotate(ang);                        // leva nera
+  ctx.fillStyle = MK; rr(-11, -12, 22, 14, 4); ctx.fill();
+  ctx.fillStyle = '#1b1d25'; poly([[-7,-10],[7,-10],[14,-68],[-14,-68]]); ctx.fill(); circ(0, -68, 14);
+  ctx.restore();
+  ctx.restore();
+}
 function drawTap(){
-  ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
-  ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
-  ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
-  ctx.fillStyle = '#8e96aa'; poly([[462,110],[498,110],[492,152],[468,152]]); ctx.fill();
-  ctx.fillStyle = '#6f7790'; rr(466, 150, 28, 9, 3); ctx.fill();
-  // leva
-  ctx.save(); ctx.translate(520, 80); ctx.rotate(-Math.PI/2 + flow*1.1);
-  ctx.fillStyle = '#8e96aa'; rr(-6, -6, 74, 12, 6); ctx.fill();
-  ctx.fillStyle = BEER; circ(68, 0, 11); ctx.restore();
-  ctx.fillStyle = '#6f7790'; circ(520, 80, 9);
+  // una spina per ogni birra sbloccata, in ordine di carta; la torre scorre cosi' che quella giusta stia sopra il boccale
+  const n = unlockedFor(day), sp = LAND ? 72 : 58, sc = LAND ? .78 : .7, tp = Math.min(towerPos < 0 ? 0 : towerPos, n - 1);
+  const xs = [];
+  for (let i = 0; i < n; i++) xs.push(480 + (i - tp)*sp);
+  if (n > 1){ ctx.fillStyle = '#aab1c2'; rr(xs[0] - 10, 84, xs[n-1] - xs[0] + 20, 16, 7); ctx.fill(); }   // traversa
+  const order = xs.map((x, i) => i).sort((a, b) => Math.abs(xs[b] - 480) - Math.abs(xs[a] - 480));      // la piu' vicina al centro per ultima (davanti)
+  for (const i of order){
+    const d = Math.min(1, Math.abs(i - tp)), k = 1 - (1 - sc)*d;
+    tapUnit(xs[i], k, i === towerTgt ? flow*0.9 : (i < tp ? -0.12 : 0.12)*d, TYPES[TYPE_ORDER[i]].beer);
+  }
 }
 const enterOffsetWorld = () => glassEnter <= 0 ? 0 : -(480 + G.wmax + 24 - (LAND ? 0 : PX0)) * Math.pow(glassEnter, 3);   // ease-out cubico: parte veloce, arriva morbido
 function drawGlass(carry){
@@ -860,52 +883,48 @@ function drawFace(x, y, r, f, mood){
   ctx.stroke();
   ctx.restore();
 }
+function drawBubble(bx, by, w, h, tailY, frac, waiting){   // fumetto = barra di pazienza: si riempie di rosso dal basso verso l'alto
+  const tail = () => poly([[bx+1, by+tailY], [bx-9, by+tailY+9], [bx+1, by+tailY+18]]);
+  ctx.fillStyle = '#fff8e8'; rr(bx, by, w, h, 11); ctx.fill(); tail(); ctx.fill();
+  if (waiting && frac < 1){
+    ctx.save(); ctx.beginPath(); ctx.rect(bx - 14, by + h*frac, w + 16, h + 2); ctx.clip();
+    ctx.fillStyle = frac < .2 && Math.sin(time*14) > 0 ? '#ff9a9a' : '#ff6b6b';
+    rr(bx, by, w, h, 11); ctx.fill(); tail(); ctx.fill();
+    ctx.restore();
+  }
+}
+function selCard(r, rad){                          // cliente attivo: bordo verde sul riquadro + etichetta PROSSIMO
+  ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, rad); ctx.stroke();
+  ctx.fillStyle = '#3ddc97'; rr(r.x + r.w/2 - 32, r.y - 8, 64, 15, 7); ctx.fill();
+  text('PROSSIMO', r.x + r.w/2, r.y + 3, 9, '#10172b', 'center', 900);
+}
 function drawCustomers(){
   if (!LAND) return drawCustomersPortrait();
-  const seats = seatCount();
   for (let i = 0; i < 4; i++){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
+    if (!c) continue;
     ctx.save();
-    if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.35)' : 'rgba(16,23,43,.72)';
-    rr(r.x, r.y, r.w, r.h, 14); ctx.fill();
-    if (!c){
-      text(i >= seats ? 'posto chiuso' : 'posto libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700);
-      ctx.restore(); continue;
-    }
+    if (c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
+    ctx.fillStyle = 'rgba(16,23,43,.78)'; rr(r.x, r.y, r.w, r.h, 14); ctx.fill();
     const frac = c.t / c.max, waiting = c.state === 'waiting';
     const ox = waiting && frac < 0.2 ? Math.sin(time*40)*1.5 : 0;
     const mood = waiting ? (frac > .55 ? 'happy' : frac > .25 ? 'neutral' : 'angry') : c.state === 'happy' ? 'happy' : c.state === 'meh' ? 'neutral' : 'angry';
-    drawFace(r.x + 34 + ox, r.y + 46, 25, c.face, mood);
-    if (sel === c.id && waiting) text('PROSSIMO', r.x + 8, r.y + 14, 9, '#3ddc97', 'left', 800);
-    // fumetto
-    const bx = r.x + 68, by = r.y + 8;
-    ctx.fillStyle = '#fff8e8'; rr(bx, by, 98, 66, 11); ctx.fill();
-    poly([[bx+1, by+24], [bx-9, by+33], [bx+1, by+42]]); ctx.fill();
+    drawFace(r.x + 37 + ox, r.y + 45, 25, c.face, mood);
+    const bx = r.x + 74, by = r.y + 12;
+    drawBubble(bx, by, 98, 66, 24, frac, waiting);
     if (waiting){
       const T = TYPES[c.type];
       miniGlass(bx + 9, by + 11, T, c.fingers);
       text(T.name, bx + 43, by + 30, 13, '#3a2a1a', 'left', 800, 52);
-      text(fmt(c.fingers) + ' dita', bx + 43, by + 49, 12, '#8a6a44', 'left', 700, 52);
+      text(fmt(c.fingers) + ' dita', bx + 43, by + 49, 12, '#5a3a14', 'left', 700, 52);
     } else if (c.popup && c.popup.text){
       text(c.popup.text, bx + 49, by + 38, 13, '#b33', 'center', 800, 88);
     } else if (c.popup){
       text('+' + c.popup.score, bx + 49, by + 36, 26, '#3a2a1a', 'center', 900);
       text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + 49, by + 57, 15, '#e59a10', 'center', 800);
+      text(`schiuma ${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, bx + 49, by + 80, 11, '#c9d4f2', 'center', 700);
     }
-    if (waiting){
-      const bw = r.w - 20;
-      ctx.fillStyle = '#3a4670'; rr(r.x + 10, r.y + 86, bw, 12, 6); ctx.fill();
-      let col = frac > .5 ? '#3ddc97' : frac > .25 ? '#f2a81d' : '#ff5d5d';
-      if (frac < .2 && Math.sin(time*14) > 0) col = '#ff9a9a';
-      ctx.fillStyle = col; rr(r.x + 10, r.y + 86, Math.max(8, bw*frac), 12, 6); ctx.fill();
-    } else if (c.popup && !c.popup.text){
-      text(`schiuma ${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, r.x + r.w/2, r.y + 98, 12, '#c9d4f2', 'center', 700);
-    }
-    // bordi
-    if (sel === c.id && waiting){
-      ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, 14); ctx.stroke();
-    }
+    if (sel === c.id && waiting) selCard(r, 14);
     ctx.restore();
   }
 }
@@ -1125,41 +1144,27 @@ function drawToast(cx = 480, ty = 546){
   text(toast.text, cx, ty + 24, 15, '#fff', 'center', 800); ctx.globalAlpha = 1;
 }
 function drawCustomersPortrait(){
-  const seats = seatCount();
   for (let i = 0; i < 4; i++){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
+    if (!c) continue;
     ctx.save();
-    if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.62)' : 'rgba(16,23,43,.9)';
-    rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
-    if (!c){ text(i >= seats ? 'chiuso' : 'libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700); ctx.restore(); continue; }
+    if (c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
+    ctx.fillStyle = 'rgba(16,23,43,.9)'; rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
     const frac = c.t / c.max, waiting = c.state === 'waiting';
     const ox = waiting && frac < 0.2 ? Math.sin(time*40)*1.5 : 0;
     const mood = waiting ? (frac > .55 ? 'happy' : frac > .25 ? 'neutral' : 'angry') : c.state === 'happy' ? 'happy' : c.state === 'meh' ? 'neutral' : 'angry';
-    drawFace(r.x + 27 + ox, r.y + 34, 20, c.face, mood);
-    const bx = r.x + 52, by = r.y + 8;
-    ctx.fillStyle = '#fff8e8'; rr(bx, by, 54, 52, 10); ctx.fill();
-    poly([[bx+1, by+20], [bx-8, by+27], [bx+1, by+34]]); ctx.fill();
+    drawFace(r.x + 28 + ox, r.y + 34, 20, c.face, mood);
+    const bw = 44, bh = 54, bx = r.x + r.w - bw - 8, by = r.y + 7;
+    drawBubble(bx, by, bw, bh, 18, frac, waiting);
     if (waiting){
-      miniGlass(bx + 16, by + 6, TYPES[c.type], c.fingers, 22, 40);
-      text(`${TYPES[c.type].name} · ${fmt(c.fingers)}`, r.x + r.w/2, r.y + 82, 12, '#fff', 'center', 800, r.w - 8);
-      const bw = r.w - 16;
-      ctx.fillStyle = '#3a4670'; rr(r.x + 8, r.y + 92, bw, 10, 5); ctx.fill();
-      let col = frac > .5 ? '#3ddc97' : frac > .25 ? '#f2a81d' : '#ff5d5d';
-      if (frac < .2 && Math.sin(time*14) > 0) col = '#ff9a9a';
-      ctx.fillStyle = col; rr(r.x + 8, r.y + 92, Math.max(8, bw*frac), 10, 5); ctx.fill();
+      miniGlass(bx + bw/2 - 11, by + 7, TYPES[c.type], c.fingers, 22, 40);
     } else if (c.popup && c.popup.text){
-      text(c.popup.text, bx + 27, by + 30, 11, '#b33', 'center', 800, 54);
+      text(c.popup.text, bx + bw/2, by + 32, 10, '#b33', 'center', 800, bw - 4);
     } else if (c.popup){
-      text('+' + c.popup.score, bx + 27, by + 28, 20, '#3a2a1a', 'center', 900);
-      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + 27, by + 46, 12, '#e59a10', 'center', 800);
-      text(`${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, r.x + r.w/2, r.y + 86, 11, '#c9d4f2', 'center', 700, r.w - 8);
+      text('+' + c.popup.score, bx + bw/2, by + 28, 18, '#3a2a1a', 'center', 900);
+      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + bw/2, by + 46, 10, '#e59a10', 'center', 800);
     }
-    if (sel === c.id && waiting){
-      ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, 12); ctx.stroke();
-      ctx.fillStyle = '#3ddc97'; rr(r.x + r.w/2 - 32, r.y - 8, 64, 15, 7); ctx.fill();
-      text('PROSSIMO', r.x + r.w/2, r.y + 3, 9, '#10172b', 'center', 900);
-    }
+    if (sel === c.id && waiting) selCard(r, 12);
     ctx.restore();
   }
 }
@@ -1220,7 +1225,7 @@ function draw(){
     drawCustomersPortrait();
     drawStrip();
     if (lvl('meter')) drawMetersStrip();
-    drawToast(300, PSY + 60);
+    drawToast(CW/2, 362);
     drawServeBubble();
   }
   if (mode !== 'menu' && joyMode === 'fixed') drawJoystickZone();       // con il joystick ovunque resta solo la piccola T che appare sotto il dito
