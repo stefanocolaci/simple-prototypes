@@ -246,7 +246,7 @@ let parts = [], bub = [];
 let last = null;
 let glassType = null;                       // tipo di birra nel boccale (segue il cliente in testa alla fila)
 let customers = [], sel = null, nextCustId = 1, spawnTimer = 0;
-let score = 0, served = 0, lives = 3;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
+let score = 0, served = 0, lives = 1;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
 let dayScore = 0, dayTarget = 300, dispScore = 0, dayCleared = false, dayClearTimer = 0;   // punti della giornata, obiettivo, valore mostrato dalla barra (si riempie in modo progressivo), giornata superata
 let wallet = 0, ups = {};                       // potenziamenti acquistati: id -> livello
 const lvl = id => ups[id] || 0;
@@ -257,7 +257,7 @@ const UPGRADES = [
   { id: 'pat',   name: 'Clienti pazienti',        desc: 'I clienti aspettano di più',         max: 3, price: [45, 80, 120],  fx: ['+10% attesa', '+20% attesa', '+30% attesa'] },
   { id: 'waste', name: 'Antispreco',              desc: 'Penalità ridotte per la birra sprecata', max: 3, price: [35, 60, 95], fx: ['−25% penalità', '−50% penalità', '−75% penalità'] },
   { id: 'goal',  name: 'Obiettivo ridotto',       desc: 'Servono meno punti per superare la giornata', max: 3, price: [60, 100, 150], fx: ['−8% obiettivo', '−16% obiettivo', '−24% obiettivo'] },
-  { id: 'life',  name: 'Vita extra',              desc: 'Più margine di errore',              max: 1, price: [90],           fx: ['4 vite a giornata'] },
+  { id: 'life',  name: 'Vita extra',              desc: 'Una vita in più ogni giornata',              max: 3, price: [60, 100, 150], fx: ['2 vite a giornata', '3 vite a giornata', '4 vite a giornata'] },
   { id: 'meter', name: 'Schiumometro',            desc: 'Schiuma e riempimento anche su telefono', max: 1, price: [70],      fx: ['pannello sempre visibile'], only: () => !LAND }
 ];
 let day = 1, dayLog = [], dayNotes = [], roundCoins = null;   // giornata corrente: registro delle birre, note, monete del round
@@ -294,7 +294,7 @@ const unlockedFor   = d => Math.min(TYPE_ORDER.length, d);            // una bir
 const seatsFor      = d => Math.min(4, 2 + Math.max(0, d - 2));       // un posto in più ogni giornata, ma a partire dalla terza
 const unlockedCount = () => unlockedFor(day);
 const seatCount     = () => seatsFor(day);
-const patienceFor   = () => Math.max(55, 90 - served*0.6) * (1 + 0.1*lvl('pat'));
+const patienceFor   = () => Math.max(38, 62 - served*0.5) * (1 + 0.1*lvl('pat'));
 const spawnGap      = () => Math.max(10, 22 - served*0.4);
 const minQueue      = () => Math.min(seatCount(), 1 + Math.floor(served/6));   // clienti in attesa che il bar cerca di avere sempre
 const fmt = v => v.toFixed(1).replace('.', ',');
@@ -387,7 +387,7 @@ function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; startD
 function startDay(){
   dayScore = 0; dispScore = 0; dayCleared = false; dayClearTimer = 0; dayLog = []; dayNotes = [];
   dayTarget = Math.round(dayTargetBase(day) * (1 - 0.08*lvl('goal')) / 10) * 10;
-  lives = 3 + lvl('life'); gameTime = 0; customers = []; sel = null; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
+  lives = 1 + lvl('life'); gameTime = 0; customers = []; sel = null; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
   emptyGlass(false); glassEnter = 1; glassHold = 0.1; hideOverlay();
   const nb = day > 1 && unlockedFor(day) > unlockedFor(day - 1) ? ` · nuova birra: ${TYPES[TYPE_ORDER[unlockedFor(day) - 1]].name}` : '';
   flash(`Giornata ${day}: obiettivo ${dayTarget} punti${nb}`);
@@ -473,7 +473,7 @@ function helpHTML(){
     <li>Ogni birra ha il suo carattere (quanta schiuma fa e quanto resiste): lo vedi nella <b>carta delle birre</b>. La Stout, per esempio, ha una schiuma cremosa che dura molto.</li>
     <li>Ogni <b>giornata</b> ha un <b>obiettivo di punti</b>, mostrato dalla barra in alto: non c'è limite di tempo. Ogni birra dà da 0 a 100 punti (schiuma, riempimento, velocità, sprechi). Raggiunto l'obiettivo la giornata è superata.</li>
     <li>A fine giornata guadagni <b>monete</b> in base ai punti, alla media di stelle, alle vite rimaste e alle birre perfette: spendile nel <b>negozio</b> per potenziare il bar. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
-    <li>Se un cliente se ne va perdi una vita (3 per giornata). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
+    <li>Se un cliente se ne va perdi una vita (ne hai una sola per giornata: altre, fino a 3, si comprano nel negozio). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
     <li>Il controllo è lo stesso su telefono e su PC (con il mouse): joystick fisso a T per versare e trascinamento della freccia SERVI per consegnare. Esc o P = pausa.</li>
   </ul></div>`;
 }
@@ -719,8 +719,8 @@ function drawBG(){
 function tapUnit(cx, s, ang, dot){                          // singola spina (flat): centro in x=0, spout che finisce a y~158
   const M = '#c9ced9', MD = '#aab1c2', MK = '#8e96aa';
   ctx.save(); ctx.translate(cx, 0); ctx.scale(s, s);
-  ctx.fillStyle = M; rr(-15, -30, 30, 110, 6); ctx.fill();                 // colonna
-  ctx.fillStyle = MD; ctx.fillRect(-15, -30, 9, 110);
+  ctx.fillStyle = M; rr(-15, -200, 30, 280, 6); ctx.fill();                 // colonna (sale oltre il bordo alto)
+  ctx.fillStyle = MD; ctx.fillRect(-15, -200, 9, 280);
   ctx.fillStyle = MK; circ(0, 44, 36);                                      // medaglione
   ctx.fillStyle = '#eef1f6'; circ(0, 44, 30);
   ctx.fillStyle = dot; circ(0, 58, 11); ctx.fillStyle = 'rgba(255,255,255,.85)'; circ(0, 55, 5);
@@ -947,7 +947,7 @@ function drawHUD(){
   text(`GIORNATA ${day}`, 248, 48, 12, '#8fa0c8', 'right');
   text(`${Math.round(dispScore)} / ${dayTarget}`, 248, 74, 20, dayCleared ? '#3ddc97' : '#fff', 'right');
   drawProgress(40, 86, 208, 14);
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < 1 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
   const n = unlockedCount();
   for (let i = 0; i < TYPE_ORDER.length; i++){
     const T = TYPES[TYPE_ORDER[i]], x = 152 + i*20;
@@ -1174,7 +1174,7 @@ function drawStrip(){                               // telefono: striscia in cim
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
   text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(`${Math.round(dispScore)} / ${dayTarget}`, 296, 150, 9, dayCleared ? '#3ddc97' : '#fff', 'right', 800);
   drawProgress(92, 156, 204, 14);
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < 1 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
   ctx.restore();
 }
 function drawMetersStrip(){               // schiumometro: striscia in alto nella scena, a destra del rubinetto
@@ -1432,7 +1432,7 @@ function applyLayout(){
     // il mondo parte dal bordo alto dello schermo (come su desktop): la spillatrice si vede intera, la parte alta passa dietro ai pannelli di clienti, vite e monete
     PZ = clamp((CH - jzReserve() - 45) / 500, 0.85, 1.5);          // la vaschetta (y 500) sta appena sopra il joystick
     PX0 = 480 - 0.30 * (CW / PZ);                           // il boccale a riposo sta a circa il 30% da sinistra
-    PY0 = PSY / PZ;                                         // y mondo 0 = bordo alto del canvas
+    PY0 = PSY / PZ - (joyMode === 'float' ? 75 : 0);        // y mondo 0 = bordo alto del canvas; col joystick flottante la scena scende (~15%) per mostrare meglio le spillatrici
   } else { CH = 600; PZ = 1.25; PX0 = 365; PY0 = 112; }
   VIS_R = port ? PX0 + CW / PZ - 4 : 742;
   for (const k in GLASSES) GLASSES[k].maxT = maxTiltFor(GLASSES[k]);
