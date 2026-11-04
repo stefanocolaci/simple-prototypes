@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="IPA">
+  <ellipse cx="128" cy="128" rx="106" ry="124" fill="#df8a24"/>
+  <ellipse cx="128" cy="128" rx="96" ry="114" fill="#fff"/>
+  <ellipse cx="128" cy="128" rx="90" ry="108" fill="#1f6b45"/>
+  <g fill="#df8a24">
+    <rect x="126" y="22" width="4" height="14"/><rect x="121" y="26" width="14" height="4"/>
+    <circle cx="128" cy="44" r="7"/>
+    <path d="M97 92L88 64Q101 62 109 78Q112 56 128 54Q144 56 147 78Q155 62 168 64L159 92Z"/>
+    <circle cx="88" cy="62" r="5"/><circle cx="168" cy="62" r="5"/><circle cx="110" cy="61" r="4.5"/><circle cx="146" cy="61" r="4.5"/>
+    <rect x="95" y="90" width="66" height="14" rx="4"/>
+  </g>
+  <rect x="99" y="94" width="58" height="6" rx="2" fill="#d6322f"/>
+  <g fill="#fff"><path d="M128 93.5l3.5 3.5-3.5 3.5-3.5-3.5z"/><path d="M111 94.5l2.5 2.5-2.5 2.5-2.5-2.5z"/><path d="M145 94.5l2.5 2.5-2.5 2.5-2.5-2.5z"/></g>
+  <text x="128" y="160" text-anchor="middle" textLength="96" lengthAdjust="spacingAndGlyphs" font-family="Georgia,'Times New Roman',serif" font-weight="900" font-size="54" fill="#fff">IPA</text>
+  <g transform="translate(128 195) scale(.25) translate(-128 -111)" stroke-linejoin="round">
+    <path d="M128 40c6-14 22-16 30-12-2 14-14 22-30 12z" fill="#5fae4a"/>
+    <path d="M128 62c-30 0-46 28-40 58 6 32 24 52 40 62 16-10 34-30 40-62 6-30-10-58-40-58z" fill="#8fd35f"/>
+    <path d="M128 76c-18 0-30 16-28 36 2 24 14 40 28 48 14-8 26-24 28-48 2-20-10-36-28-36z" fill="#b5e583"/>
+    <path d="M128 62v118M100 82c10 8 18 8 28 0 10 8 18 8 28 0M94 112c12 10 22 10 34 0 12 10 22 10 34 0M100 142c10 10 18 10 28 0 10 10 18 10 28 0" fill="none" stroke="#3f8a36" stroke-width="7" stroke-linecap="round"/></g>
+</svg>

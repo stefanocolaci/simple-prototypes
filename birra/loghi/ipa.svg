@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="IPA">
+  <circle cx="128" cy="128" r="124" fill="#df8a24"/>
+  <circle cx="128" cy="128" r="112" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="4"/>
+  <g stroke-linejoin="round">
+    <path d="M128 40c6-14 22-16 30-12-2 14-14 22-30 12z" fill="#2f7a3b"/>
+    <path d="M128 52c-10 0-14 8-12 16 8 2 14-6 12-16z" fill="#3e9a4b"/>
+    <path d="M128 62c-30 0-46 28-40 58 6 32 24 52 40 62 16-10 34-30 40-62 6-30-10-58-40-58z" fill="#6fbf4f"/>
+    <path d="M128 76c-18 0-30 16-28 36 2 24 14 40 28 48 14-8 26-24 28-48 2-20-10-36-28-36z" fill="#8fd35f"/>
+    <path d="M128 62v118M100 82c10 8 18 8 28 0 10 8 18 8 28 0M94 112c12 10 22 10 34 0 12 10 22 10 34 0M100 142c10 10 18 10 28 0 10 10 18 10 28 0" fill="none" stroke="#2f7a3b" stroke-width="4" stroke-linecap="round"/>
+  </g>
+  <text x="128" y="222" text-anchor="middle" font-family="system-ui,-apple-system,'Segoe UI',Arial,sans-serif" font-weight="900" font-size="22" letter-spacing="4" fill="#4a2a00">IPA</text>
+</svg>

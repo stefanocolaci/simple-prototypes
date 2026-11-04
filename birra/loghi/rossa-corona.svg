@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="ROSSA">
+  <ellipse cx="128" cy="128" rx="106" ry="124" fill="#d9692a"/>
+  <ellipse cx="128" cy="128" rx="96" ry="114" fill="#fff"/>
+  <ellipse cx="128" cy="128" rx="90" ry="108" fill="#8a1f1f"/>
+  <g fill="#d9692a">
+    <rect x="126" y="22" width="4" height="14"/><rect x="121" y="26" width="14" height="4"/>
+    <circle cx="128" cy="44" r="7"/>
+    <path d="M97 92L88 64Q101 62 109 78Q112 56 128 54Q144 56 147 78Q155 62 168 64L159 92Z"/>
+    <circle cx="88" cy="62" r="5"/><circle cx="168" cy="62" r="5"/><circle cx="110" cy="61" r="4.5"/><circle cx="146" cy="61" r="4.5"/>
+    <rect x="95" y="90" width="66" height="14" rx="4"/>
+  </g>
+  <rect x="99" y="94" width="58" height="6" rx="2" fill="#d6322f"/>
+  <g fill="#fff"><path d="M128 93.5l3.5 3.5-3.5 3.5-3.5-3.5z"/><path d="M111 94.5l2.5 2.5-2.5 2.5-2.5-2.5z"/><path d="M145 94.5l2.5 2.5-2.5 2.5-2.5-2.5z"/></g>
+  <text x="128" y="160" text-anchor="middle" textLength="144" lengthAdjust="spacingAndGlyphs" font-family="Georgia,'Times New Roman',serif" font-weight="900" font-size="48" fill="#fff">ROSSA</text>
+  <path d="M138 184h6a6 6 0 0 1 6 6v8a6 6 0 0 1-6 6h-6" fill="none" stroke="#f6dcb8" stroke-width="4" stroke-linecap="round"/>
+  <clipPath id="g"><rect x="113" y="176" width="26" height="36" rx="4"/></clipPath>
+  <g clip-path="url(#g)"><rect x="110" y="170" width="32" height="46" fill="#c0521c"/><rect x="110" y="196" width="32" height="20" fill="#9a3d12"/></g><g fill="#f6dcb8"><rect x="113" y="175" width="26" height="8" rx="3"/><circle cx="119" cy="175" r="5"/><circle cx="126.0" cy="173" r="6"/><circle cx="133" cy="175" r="5"/></g>
+</svg>

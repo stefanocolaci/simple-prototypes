@@ -38,6 +38,12 @@
   .crow{display:grid;grid-template-columns:24px 74px 1fr 1fr;align-items:center;gap:8px;margin:5px 0;font-size:14px}
   .crow.dim{opacity:.5}.crow.head small{color:#8fa0c8;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
   .crow .chip{width:22px;height:22px;border-radius:50%}
+  .crow img.chip.logo{width:26px;height:26px;border-radius:0;object-fit:contain;background:none}
+  .newbeer{text-align:center;margin:4px 0}
+  .newbeer img{width:112px;height:112px;animation:nbpop .6s cubic-bezier(.2,1.4,.4,1) both}
+  .newbeer .nbname{font-size:30px;font-weight:900;margin-top:6px}
+  .crow.nbrow{grid-template-columns:70px 1fr;max-width:300px;margin:8px auto}
+  @keyframes nbpop{from{transform:scale(.3) rotate(-12deg);opacity:0}to{transform:none;opacity:1}}
   .cbar{display:block;height:9px;border-radius:5px;background:#3a4670;overflow:hidden}.cbar i{display:block;height:100%;border-radius:5px}
   #tuto{display:block;width:100%;max-width:440px;margin:8px auto;border-radius:14px;background:#22304f;box-shadow:0 4px 0 rgba(0,0,0,.25)}
   .helplist{text-align:left;max-height:clamp(180px,calc(100dvh - 330px),60vh);overflow:auto;padding-right:6px}
@@ -47,6 +53,14 @@
   .coin{display:inline-block;width:.85em;height:.85em;border-radius:50%;background:#ffd54a;box-shadow:inset 0 0 0 .14em #e0a800;vertical-align:-.1em;margin-left:.25em}
   .stars{font-size:38px;letter-spacing:6px;color:var(--amber);margin:2px 0}
   .stars .off{color:#46537a}
+  .lvl{margin:10px 6px 4px}
+  .lvl .track{position:relative;height:14px;border-radius:7px;background:#3a4670;overflow:hidden}
+  .lvl .fill{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:7px;animation:lvlfill 1.6s cubic-bezier(.2,.8,.25,1) .25s forwards}
+  .lvl .track i{position:absolute;top:2px;bottom:2px;width:2px;margin-left:-1px;background:rgba(255,255,255,.3)}
+  .lvl .ticks{position:relative;height:16px;font-size:11px;font-weight:700;color:#8fa0c8;margin-top:8px}
+  .lvl .ticks span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+  .lvl .ticks span.on{color:#fff}
+  @keyframes lvlfill{from{width:0}to{width:var(--p)}}
   table{width:100%;border-collapse:collapse;margin:8px 0;font-size:clamp(13px,2vw,15px)}
   td{padding:4px 2px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
   td:last-child{text-align:right;font-weight:700}
@@ -113,7 +127,7 @@
 /* ============================ COSTANTI ============================ */
 const W = 960, H = 600;
 const SX = 480, SPY = 158, MY = 272;          // x e punta del rubinetto, y del bordo del boccale
-const dayTargetBase = d => Math.round((300 + 110*(d - 1)) / 10) * 10;   // obiettivo di punti per superare la giornata d (300, 410, 520, ...)
+const dayTargetBase = d => 3 + d;   // clienti che arrivano nella giornata d (4, 5, 6, ...): la giornata finisce quando sono stati tutti gestiti
 const FINGER = 24;                              // 1 "dito" di schiuma = 24 px
 const MAXT = 68 * Math.PI / 180;
 // Tipi di birra: colore, colore schiuma, quanta schiuma fa (foamMul) e quanto resiste (decay)
@@ -239,15 +253,18 @@ let time = 0, gameTime = 0;
 let stream = null, hint = '';
 let joyX = 0, joyRX = 0, joyRY = 0;                                   // joystick fisso a T: spostamento (con zona morta) e grezzo
 let joyMode = localStorage.getItem('birra_joymode') === 'float' ? 'float' : 'fixed';   // fixed = T fissa in basso; float = il dito agisce come joystick flottante ovunque (non sul boccale), la T resta al suo posto e mostra l'input
+let hideFloat = localStorage.getItem('birra_hidefloat') === '1';   // joystick flottante invisibile (funziona uguale, ma non viene disegnato)
+let floatFlat = localStorage.getItem('birra_floatflat') === '1';   // joystick flottante minimale: senza bordi, un solo colore, semitrasparente
 let floatScale = clamp(parseFloat(localStorage.getItem('birra_floatscale')) || 1, 0.4, 2);   // scala della corsa del dito nel joystick ovunque (1 = corsa di base, <1 = basta muovere meno)
-let floatX0 = 0, floatY0 = 0;                                          // punto in cui è iniziato il tocco (modalità float)
+let floatX0 = 0, floatY0 = 0, floatFX = 0, floatFY = 0;                                          // punto in cui è iniziato il tocco (modalità float)
 let touching = false, fingerV = 0;                                    // dito/mouse sul joystick e livello di flusso (0..1)
 let parts = [], bub = [];
 let last = null;
 let glassType = null;                       // tipo di birra nel boccale (segue il cliente in testa alla fila)
 let customers = [], sel = null, nextCustId = 1, spawnTimer = 0;
-let score = 0, served = 0, lives = 1;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
-let dayScore = 0, dayTarget = 300, dispScore = 0, dayCleared = false, dayClearTimer = 0;   // punti della giornata, obiettivo, valore mostrato dalla barra (si riempie in modo progressivo), giornata superata
+const MAX_LIVES = 3, LIFE_PRICE = 50;          // le vite sono 3 per tutta la partita: non si ripristinano da sole, nel negozio se ne ricompra una alla volta (fino a 3)
+let score = 0, served = 0, lives = MAX_LIVES;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
+let dayScore = 0, dayDone = 0, daySpawned = 0, dayTarget = 4, dispScore = 0, dayCleared = false, dayClearTimer = 0;   // punti della giornata, obiettivo, valore mostrato dalla barra (si riempie in modo progressivo), giornata superata
 let wallet = 0, ups = {};                       // potenziamenti acquistati: id -> livello
 const lvl = id => ups[id] || 0;
 const UPGRADES = [
@@ -256,8 +273,7 @@ const UPGRADES = [
   { id: 'flow',  name: 'Rubinetto potenziato',    desc: 'Flusso più veloce, spilli prima',    max: 3, price: [40, 70, 110],  fx: ['+15% flusso', '+30% flusso', '+45% flusso'] },
   { id: 'pat',   name: 'Clienti pazienti',        desc: 'I clienti aspettano di più',         max: 3, price: [45, 80, 120],  fx: ['+10% attesa', '+20% attesa', '+30% attesa'] },
   { id: 'waste', name: 'Antispreco',              desc: 'Penalità ridotte per la birra sprecata', max: 3, price: [35, 60, 95], fx: ['−25% penalità', '−50% penalità', '−75% penalità'] },
-  { id: 'goal',  name: 'Obiettivo ridotto',       desc: 'Servono meno punti per superare la giornata', max: 3, price: [60, 100, 150], fx: ['−8% obiettivo', '−16% obiettivo', '−24% obiettivo'] },
-  { id: 'life',  name: 'Vita extra',              desc: 'Una vita in più ogni giornata',              max: 3, price: [60, 100, 150], fx: ['2 vite a giornata', '3 vite a giornata', '4 vite a giornata'] },
+  { id: 'goal',  name: 'Obiettivo ridotto',       desc: 'Arrivano meno clienti ogni giornata', max: 3, price: [60, 100, 150], fx: ['−1 cliente al giorno', '−2 clienti al giorno', '−3 clienti al giorno'] },
   { id: 'meter', name: 'Schiumometro',            desc: 'Schiuma e riempimento anche su telefono', max: 1, price: [70],      fx: ['pannello sempre visibile'], only: () => !LAND }
 ];
 let day = 1, dayLog = [], dayNotes = [], roundCoins = null;   // giornata corrente: registro delle birre, note, monete del round
@@ -321,6 +337,7 @@ function spawnCustomer(){
   const pat = patienceFor();
   customers.push({ id: nextCustId++, slot: pick(free), type: pick(pool), fingers: pick(FINGER_CHOICES), face: randomFace(),
                    max: pat, t: pat, state: 'waiting', leave: 0, popup: null });
+  daySpawned++;
   return true;
 }
 function updateCustomers(dt){
@@ -330,10 +347,13 @@ function updateCustomers(dt){
       c.t -= dt;
       if (c.t <= 0){
         c.state = 'gone'; c.leave = 2; c.popup = { text: 'Me ne vado!' };
-        lives--; shake = .4; ding(false);
+        lives = Math.max(0, lives - 2); shake = .4; ding(false);      // un cliente non servito costa due vite
+        celebrate(c, 0);                              // stessa animazione negativa di una birra pessima
         dayLog.push({ type: c.type, fingers: c.fingers, lost: true, score: 0, stars: 0 });
+        dayDone++;
         if (sel === c.id) sel = null;
         if (lives <= 0){ endGame(); return; }
+        if (dayDone >= dayTarget && !dayCleared){ dayCleared = true; dayClearTimer = 2.7; flash('Giornata finita!'); }
       }
     } else c.leave -= dt;
   }
@@ -341,8 +361,9 @@ function updateCustomers(dt){
   if (dayCleared){ dayClearTimer -= dt; if (dayClearTimer <= 0) endDay(); return; }
   spawnTimer -= dt;
   // niente tempi morti: se in sala ci sono pochi clienti, il prossimo arriva in fretta
-  if (customers.filter(c => c.state === 'waiting').length < minQueue() && spawnTimer > 1.5) spawnTimer = 1.5;
-  if (spawnTimer <= 0) spawnTimer = spawnCustomer() ? spawnGap() * (0.7 + Math.random()*0.6) : 1;
+  if (daySpawned < dayTarget && customers.filter(c => c.state === 'waiting').length < minQueue() && spawnTimer > 1.5) spawnTimer = 1.5;
+  if (daySpawned >= dayTarget) spawnTimer = 1;                // arrivati tutti i clienti della giornata: non ne entrano altri
+  else if (spawnTimer <= 0) spawnTimer = spawnCustomer() ? spawnGap() * (0.7 + Math.random()*0.6) : 1;
   // ordine FIFO: si serve sempre il cliente arrivato per primo tra quelli in attesa
   const first = customers.filter(c => c.state === 'waiting').sort((a, b) => a.id - b.id)[0];
   sel = first ? first.id : null;
@@ -369,34 +390,43 @@ function judge(c){
   const speedPts = 10 * clamp(c.t/c.max, 0, 1) * (fillPts/30);
   const spillPts = Math.min(15, spill / CAP_UP * 100 * 0.8) * (1 - 0.25*lvl('waste'));
   const s = Math.round(clamp(foamPts + fillPts + speedPts - spillPts, 0, 100));
-  // punti per birra: da 0 a 100 (schiuma max 60, riempimento max 30, velocità max 10, sprechi fino a −15)
-  return { score: s, stars: s >= 85 ? 3 : s >= 60 ? 2 : s >= 30 ? 1 : 0, foamH: m.foamH, target, gap: m.gap,
+  // livello: Pessimo / Bene / Ottimo / Perfetto, decisi dalle tolleranze (in dita di schiuma, px di vuoto sopra la birra, % di birra versata fuori).
+  // Troppa schiuma pesa di più della poca (×1.25): un boccale pieno ma "tutta schiuma" è subito pessimo.
+  const eRaw = (m.foamH - target)/FINGER, e = eRaw > 0 ? eRaw*1.25 : -eRaw, sp = spill / CAP_UP * 100;
+  const stars = e <= 0.2 && m.gap <= 6 && sp <= 3 ? 3 : e <= 0.45 && m.gap <= 12 && sp <= 8 ? 2 : e <= 0.8 && m.gap <= 25 && sp <= 20 ? 1 : 0;
+  return { score: s, stars, foamH: m.foamH, target, gap: m.gap,
            foamPts, fillPts, speedPts, spillPts, wait: c.max - c.t };
 }
 function deliver(c, keepGlass){                     // keepGlass: il boccale resta in scena (servizio automatico: scorre via mentre partono gia' gli effetti)
   const r = judge(c);
   dayScore += r.score; score += r.score; served++;
-  c.state = r.score >= 60 ? 'happy' : r.score >= 30 ? 'meh' : 'angry';
+  dayDone++;                                    // cliente gestito (qualunque livello)
+  c.state = r.stars >= 2 ? 'happy' : r.stars === 1 ? 'meh' : 'angry';
   c.leave = 2.6; c.popup = r;
   if (sel === c.id) sel = null;
   ding(r.stars > 1, r.stars);
   wipe = .8;                       // il barista passa lo straccio: la birra caduta sparisce
   celebrate(c, r.stars);
   dayLog.push({ type: c.type, fingers: c.fingers, lost: false, ...r });
-  if (dayScore >= dayTarget && !dayCleared){ dayCleared = true; dayClearTimer = 1.5; flash('Obiettivo raggiunto!'); }
+  if (r.stars === 0){ lives--; shake = .4; flash('Pessimo: −1 vita'); if (lives <= 0){ endGame(); return; } }     // una birra pessima costa una vita, come un cliente che se ne va
+  if (dayDone >= dayTarget && !dayCleared){ dayCleared = true; dayClearTimer = 2.7; flash('Giornata finita!'); }
   if (!keepGlass) finishDeliver();
 }
-function finishDeliver(){ emptyGlass(false); glassEnter = 1; glassHold = 0.5; }   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
-function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; startDay(); }
+function finishDeliver(){ if (mode === 'over') return; emptyGlass(false); glassEnter = 1; glassHold = 0.5; }   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
+function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; lives = MAX_LIVES; startDay(); mode = 'paused'; showNewBeer(() => { mode = 'playing'; hideOverlay(); }); }   // a inizio partita si presenta la prima birra; la giornata parte alla chiusura del popup
 function startDay(){
-  dayScore = 0; dispScore = 0; dayCleared = false; dayClearTimer = 0; dayLog = []; dayNotes = [];
-  dayTarget = Math.round(dayTargetBase(day) * (1 - 0.08*lvl('goal')) / 10) * 10;
-  lives = 1 + lvl('life'); gameTime = 0; customers = []; sel = null; autoServe = false; autoP = 0; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
+  dayScore = 0; dayDone = 0; daySpawned = 0; dispScore = 0; dayCleared = false; dayClearTimer = 0; dayLog = []; dayNotes = [];
+  dayTarget = Math.max(2, dayTargetBase(day) - lvl('goal'));
+  gameTime = 0; customers = []; sel = null; autoServe = false; autoP = 0; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
   emptyGlass(false); glassEnter = 1; glassHold = 0.1; hideOverlay();
   const nb = day > 1 && unlockedFor(day) > unlockedFor(day - 1) ? ` · nuova birra: ${TYPES[TYPE_ORDER[unlockedFor(day) - 1]].name}` : '';
-  flash(`Giornata ${day}: obiettivo ${dayTarget} punti${nb}`);
+  flash(`Giornata ${day}: arrivano ${dayTarget} clienti${nb}`);
 }
+const RATING = ['Pessimo', 'Bene', 'Ottimo', 'Perfetto'], RATING_COL = ['#d33', '#5b8bd9', '#2a9d6e', '#e59a10'];   // nomi dei 4 livelli (0..3)
 const starsStr = n => '★'.repeat(n) + '☆'.repeat(3 - n);
+const LVL_LIGHT = ['#ff6b6b', '#8fb4ff', '#4fd6a0', '#ffd54a'];   // colori dei livelli sullo sfondo scuro del pannello
+const avgLevel = () => { const d = dayLog.filter(e => !e.lost); return d.length ? d.reduce((a, e) => a + e.stars, 0)/d.length : null; };   // livello medio attuale (0..3), null se nessuna birra servita
+const lostN = () => dayLog.filter(e => e.lost).length;
 function calcRoundCoins(){                          // monete di fine giornata: punti, media stelle, vite rimaste, birre perfette
   const done = dayLog.filter(e => !e.lost), avg = done.length ? done.reduce((a, e) => a + e.stars, 0)/done.length : 0;
   const base = Math.round(dayScore / 10), stars = Math.round(avg * 6), vite = lives * 4, perfect = done.filter(e => e.stars === 3).length * 2;
@@ -406,18 +436,20 @@ function summaryHTML(over){
   const done = dayLog.filter(e => !e.lost), lost = dayLog.length - done.length;
   const avgN = done.length ? done.reduce((a, e) => a + e.stars, 0)/done.length : null;
   const stars = avgN === null ? '<p class="muted">Nessuna birra servita.</p>'
-    : `<div class="stars">${[0, 1, 2].map(i => `<span class="${i < Math.round(avgN) ? '' : 'off'}">★</span>`).join('')}</div><p class="sumhead">Media ${fmt(avgN)} / 3 stelle</p>`;
+    : `<div class="lvl"><div class="track"><div class="fill" style="--p:${Math.max(avgN/3*100, 4).toFixed(1)}%;background:${LVL_LIGHT[Math.round(avgN)]}"></div><i style="left:33.3%"></i><i style="left:66.6%"></i></div>
+        <div class="ticks">${RATING.map((n, i) => `<span class="${i === Math.round(avgN) ? 'on' : ''}" style="left:${(i*100/3).toFixed(1)}%">${n}</span>`).join('')}</div></div>
+        <p class="sumhead">Livello medio: <b style="color:${RATING_COL[Math.round(avgN)]}">${RATING[Math.round(avgN)]}</b></p>`;
   const notes = dayNotes.length ? `<p>${dayNotes.join('<br>')}</p>` : '';
   const coin = '<i class="coin"></i>', rc = roundCoins;
   const coins = over || !rc ? '' : `<table>
-      <tr><td>Punti ${dayScore} / ${dayTarget}</td><td>+${rc.base}${coin}</td></tr>
-      <tr><td>Media stelle ${fmt(rc.avg)}</td><td>+${rc.stars}${coin}</td></tr>
+      <tr><td>Clienti serviti ${dayDone - lostN()} / ${dayTarget} · punti ${dayScore}</td><td>+${rc.base}${coin}</td></tr>
+      <tr><td>Livello medio ${RATING[Math.round(rc.avg)]}</td><td>+${rc.stars}${coin}</td></tr>
       <tr><td>Vite rimaste ${lives}</td><td>+${rc.vite}${coin}</td></tr>
       <tr><td>Birre perfette ${rc.perfectN}</td><td>+${rc.perfect}${coin}</td></tr></table>
     <p class="sumhead">Monete guadagnate <b>+${rc.total}</b>${coin} · Portafoglio <b>${wallet}</b>${coin}</p>`;
   return `${stars}
     <p class="muted">Servite ${done.length} · Perse ${lost}</p>
-    ${over ? `<p class="sumhead">Punti <b>${dayScore}</b> / ${dayTarget}</p>` : ''}${coins}${notes}`;
+    ${over ? `<p class="sumhead">Clienti gestiti <b>${dayDone}</b> / ${dayTarget} · punti ${dayScore}</p>` : ''}${coins}${notes}`;
 }
 const soundLabel = () => muted ? 'Attiva suono' : 'Disattiva suono';
 const joyLabel = () => (joyMode === 'float' ? 'Controllo: joystick ovunque, tranne sul boccale' : 'Controllo: joystick fisso in basso') + ' — tocca per cambiare';
@@ -435,6 +467,8 @@ const fixedBox = () => joyMode !== 'fixed' ? '' : `<div class="scalebox"><label 
 const scaleBox = () => joyMode !== 'float' ? '' : `<div class="scalebox"><label for="fscale">Corsa del dito: <b id="fsv">${Math.round(floatScale*100)}%</b></label>
     <input type="range" id="fscale" min="40" max="200" step="5" value="${Math.round(floatScale*100)}">
     <p class="muted" id="fst">${floatTravel()} per muovere gli slider al massimo. Più basso = basta muovere meno il dito.</p></div>`;
+const hideLabel = () => (hideFloat ? '☑' : '☐') + ' Joystick flottante invisibile';
+const flatLabel = () => (floatFlat ? '☑' : '☐') + ' Joystick flottante minimale (senza bordi, trasparente)';
 const serveLabel = () => (serveMode === 'auto' ? 'Servizio: automatico, appena rilasci il dito' : 'Servizio: classico, trascina il boccale a destra') + ' — tocca per cambiare';
 const joyHint = () => joyMode === 'float' ? 'Trascina ovunque: giù = flusso, destra = inclina' : 'Joystick: giù = flusso, destra = inclina';
 function pauseHTML(){
@@ -443,12 +477,12 @@ function pauseHTML(){
     const L = lvl(u.id), pips = Array.from({ length: u.max }, (_, i) => i < L ? '●' : '○').join('');
     return `<div class="brow"><div class="binfo"><b>${u.name}</b> <span class="pips">${pips}</span><div class="sub">${u.fx[L-1]}</div></div></div>`;
   }).join('');
-  return `<p class="sumhead">Giornata ${day}: ${dayScore} / ${dayTarget} punti</p>
+  return `<p class="sumhead">Giornata ${day}: ${dayDone} / ${dayTarget} clienti gestiti</p>
     <p class="sumhead">Potenziamenti attivi</p>
     <div class="blist">${rows || '<p class="muted">Nessuno per ora: li trovi nel negozio a fine giornata.</p>'}</div>
     <button class="sec" data-act="help">Istruzioni e carta delle birre</button>
     <button class="sec" data-act="joymode">${joyLabel()}</button>
-    ${scaleBox()}${fixedBox()}
+    ${scaleBox()}${joyMode === 'float' ? `<button class="sec" data-act="hidefloat">${hideLabel()}</button><button class="sec" data-act="flatfloat">${flatLabel()}</button>` : ''}${fixedBox()}
     <button class="sec" data-act="servemode">${serveLabel()}</button>
     <button class="sec" data-act="snd">${soundLabel()}</button>`;
 }
@@ -463,7 +497,7 @@ function cartaHTML(){
   const rows = TYPE_ORDER.map((k, i) => {
     if (i >= n) return `<div class="crow dim"><span class="chip" style="background:#3a4670"></span><b>???</b><span></span><span></span></div>`;
     const T = TYPES[k];
-    return `<div class="crow"><span class="chip" style="background:${T.beer};box-shadow:inset 0 0 0 3px ${T.foam}"></span><b>${T.name}</b>
+    return `<div class="crow"><img class="chip logo" src="loghi/${LOGO_FILE[k]}.svg" alt=""><b>${T.name}</b>
       <span class="cbar"><i style="width:${Math.round(foamLevel(T)*100)}%;background:#fff4d6"></i></span>
       <span class="cbar"><i style="width:${Math.round(holdLevel(T)*100)}%;background:#6ec1ff"></i></span></div>`;
   }).join('');
@@ -477,9 +511,9 @@ function helpHTML(){
     <li>Il getto sul bordo del boccale inclinato fa <b>poca schiuma</b>, quello dritto ne fa tanta, e un flusso basso ne fa ancora meno. La linea tratteggiata sul vetro mostra dove deve arrivare la birra: sopra c'è la schiuma richiesta.</li>
     <li>Quando il boccale è pieno almeno al 95% (e dritto) compare accanto al boccale il fumetto <b>SERVI ▶▶</b>: appoggia il dito sul fumetto o sul boccale e <b>trascinalo verso destra</b>: il boccale scivola insieme al dito e, arrivato in fondo, la birra viene consegnata al cliente in testa alla fila. Se lasci prima, il boccale torna al suo posto. (Nel menu di pausa puoi attivare il <b>servizio automatico</b>: appena rilasci il dito con la birra pronta, il boccale scivola da solo verso il cliente.) Se il cliente se ne va, la birra nel boccale passa al prossimo. </li>
     <li>Ogni birra ha il suo carattere (quanta schiuma fa e quanto resiste): lo vedi nella <b>carta delle birre</b>. La Stout, per esempio, ha una schiuma cremosa che dura molto.</li>
-    <li>Ogni <b>giornata</b> ha un <b>obiettivo di punti</b>, mostrato dalla barra in alto: non c'è limite di tempo. Ogni birra dà da 0 a 100 punti (schiuma, riempimento, velocità, sprechi). Raggiunto l'obiettivo la giornata è superata.</li>
+    <li>Ogni <b>giornata</b> ha un <b>obiettivo di clienti</b>, mostrato dalla barra in alto: arrivano un certo numero di clienti e la giornata finisce quando li hai serviti tutti (nessun cliente resta seduto), senza limite di tempo. Ogni birra dà anche da 0 a 100 punti (schiuma, riempimento, velocità, sprechi), che contano per le monete. Raggiunto l'obiettivo la giornata è superata.</li>
     <li>A fine giornata guadagni <b>monete</b> in base ai punti, alla media di stelle, alle vite rimaste e alle birre perfette: spendile nel <b>negozio</b> per potenziare il bar. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
-    <li>Se un cliente se ne va perdi una vita (ne hai una sola per giornata: altre, fino a 3, si comprano nel negozio). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
+    <li>Se un cliente se ne va perdi due vite; se gli servi una birra pessima (troppa schiuma, poca schiuma o boccale non pieno) ne perdi una (ne hai 3 per tutta la partita: non si ripristinano da sole, ma nel negozio puoi ricomprarne una). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
     <li>Il controllo è lo stesso su telefono e su PC (con il mouse): joystick fisso a T per versare e trascinamento della freccia SERVI per consegnare. Esc o P = pausa.</li>
   </ul></div>`;
 }
@@ -500,12 +534,26 @@ function shopHTML(){
     return `<div class="brow"><div class="binfo"><b>${u.name}</b> <span class="pips">${pips}</span>
       <div class="sub">${u.desc} · ${maxed ? 'livello massimo: ' + u.fx[L-1] : 'prossimo: ' + u.fx[L]}</div></div>${btn}</div>`;
   }).join('');
-  return `<p class="sumhead">Hai <b>${wallet}</b><i class="coin"></i></p><div class="blist">${rows}</div>`;
+  const hearts = Array.from({ length: MAX_LIVES }, (_, i) => i < lives ? '♥' : '♡').join('');
+  const lifeBtn = lives >= MAX_LIVES ? '<span class="muted">MAX</span>'
+    : `<button class="buy" data-buy="life" ${wallet < LIFE_PRICE ? 'disabled' : ''}>${LIFE_PRICE}<i class="coin"></i></button>`;
+  const lifeRow = `<div class="brow"><div class="binfo"><b>Vita</b> <span class="pips" style="color:#ff5d6c">${hearts}</span>
+      <div class="sub">Le vite non si ripristinano da sole · ${lives >= MAX_LIVES ? 'le hai tutte' : 'recuperi una vita'}</div></div>${lifeBtn}</div>`;
+  return `<p class="sumhead">Hai <b>${wallet}</b><i class="coin"></i></p><div class="blist">${lifeRow}${rows}</div>`;
 }
 function openShop(){
-  showOverlay('Negozio', shopHTML(), `Giornata ${day + 1}`, () => { day++; startDay(); });
+  showOverlay('Negozio', shopHTML(), `Giornata ${day + 1}`, () => { day++; if (unlockedFor(day) > unlockedFor(day - 1)) showNewBeer(startDay); else startDay(); });
+}
+function showNewBeer(next){                              // presentazione della birra appena sbloccata, dopo il negozio e prima della giornata
+  const k = TYPE_ORDER[unlockedFor(day) - 1], T = TYPES[k];
+  showOverlay('🍺 New beer in town', `<div class="newbeer">
+      <img src="loghi/${LOGO_FILE[k]}.svg" alt="">
+      <div class="nbname">${T.name}</div><p class="muted">${T.desc}</p>
+      <div class="crow nbrow"><small>schiuma</small><span class="cbar"><i style="width:${Math.round(foamLevel(T)*100)}%;background:#fff4d6"></i></span></div>
+      <div class="crow nbrow"><small>tenuta</small><span class="cbar"><i style="width:${Math.round(holdLevel(T)*100)}%;background:#6ec1ff"></i></span></div></div>`, `Giornata ${day}`, next);
 }
 function buy(id){
+  if (id === 'life'){ if (lives >= MAX_LIVES || wallet < LIFE_PRICE) return; wallet -= LIFE_PRICE; lives++; ding(true, 2); const l = ovb.querySelector('.blist'), t = l ? l.scrollTop : 0; ovb.innerHTML = shopHTML(); const l3 = ovb.querySelector('.blist'); if (l3) l3.scrollTop = t; return; }
   const u = UPGRADES.find(x => x.id === id), L = lvl(id);
   if (!u || L >= u.max || wallet < u.price[L]) return;
   wallet -= u.price[L]; ups[id] = L + 1; ding(true, 2);
@@ -586,7 +634,7 @@ function update(dt){
   puddle = Math.max(0, puddle - puddle*(wipe > 0 ? 5 : 0.02)*dt); wipe = Math.max(0, wipe - dt);
   updateFx(dt);
   shake = Math.max(0, shake - dt);
-  dispScore += (dayScore - dispScore) * Math.min(1, dt*5);       // la barra del punteggio si riempie in modo progressivo
+  { const a = avgLevel(); dispScore += ((a === null ? 0 : a) - dispScore) * Math.min(1, dt*5); }       // la barra del livello medio scorre in modo progressivo
   if (glassHold > 0) glassHold -= dt; else glassEnter = Math.max(0, glassEnter - dt/0.42);   // mezzo secondo di attesa, poi il boccale entra
   serveAnim = clamp(serveAnim + ((JZ && canServe() && tilt < 0.15) ? 6 : -6)*dt, 0, 1);       // il fumetto SERVI spunta quando la birra è servibile
   if (toast){ toast.t -= dt; if (toast.t <= 0) toast = null; }
@@ -715,6 +763,14 @@ function poly(p){ ctx.beginPath(); p.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]
 function circ(x, y, r){ ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); }
 function text(s, x, y, size, color, align, weight, maxw){ ctx.font = `${weight || 800} ${size}px system-ui,sans-serif`; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText(s, x, y, maxw); }
 
+// loghi delle birre (SVG in loghi/): se non sono ancora caricati si usano i pallini colorati
+const LOGO_FILE = { lager: 'lager', ipa: 'ipa', pils: 'pilsner', weiss: 'weiss', rossa: 'rossa', stout: 'stout' };
+const LOGOS = {};
+for (const k in LOGO_FILE){ const im = new Image(); im.src = `loghi/${LOGO_FILE[k]}.svg`; LOGOS[k] = im; }
+function logo(key, cx, cy, h){                       // h = altezza dell'ovale visibile (nell'SVG occupa il 97% dell'altezza)
+  const im = LOGOS[key]; if (!im || !im.complete || !im.naturalWidth) return false;
+  const sz = h/0.97; ctx.drawImage(im, cx - sz/2, cy - sz/2, sz, sz); return true;
+}
 const BOTTLES = [];
 (function(){ const cols = ['#2f6b4f','#8a5a2b','#3d6fb3','#b8862f']; let x = 20, i = 0;
   while (x < W){ const w = 20 + (i*7)%10, h = 56 + (i*13)%34; BOTTLES.push({ x, w, h, c: cols[i%4] }); x += w + 14 + (i*5)%14; i++; } })();
@@ -747,14 +803,14 @@ function drawBG(){
   const pw = Math.min(150, puddle / CAP_UP * 420);
   if (pw > 2){ ctx.fillStyle = 'rgba(242,168,29,.85)'; ctx.beginPath(); ctx.ellipse(480, 506, pw, 5, 0, 0, 7); ctx.fill(); }
 }
-function tapUnit(cx, s, ang, dot){                          // singola spina (flat): centro in x=0, spout che finisce a y~158
+function tapUnit(cx, s, ang, dot, key){                          // singola spina (flat): centro in x=0, spout che finisce a y~158
   const M = '#c9ced9', MD = '#aab1c2', MK = '#8e96aa';
   ctx.save(); ctx.translate(cx, 0); ctx.scale(s, s);
   ctx.fillStyle = M; rr(-15, -200, 30, 280, 6); ctx.fill();                 // colonna (sale oltre il bordo alto)
   ctx.fillStyle = MD; ctx.fillRect(-15, -200, 9, 280);
   ctx.fillStyle = MK; circ(0, 44, 36);                                      // medaglione
   ctx.fillStyle = '#eef1f6'; circ(0, 44, 30);
-  ctx.fillStyle = dot; circ(0, 58, 11); ctx.fillStyle = 'rgba(255,255,255,.85)'; circ(0, 55, 5);
+  if (!logo(key, 0, 44, 52)){ ctx.fillStyle = dot; circ(0, 58, 11); ctx.fillStyle = 'rgba(255,255,255,.85)'; circ(0, 55, 5); }
   ctx.fillStyle = M; poly([[-22,84],[22,84],[32,112],[-32,112]]); ctx.fill();   // testa
   ctx.fillStyle = MD; poly([[-22,84],[-12,84],[-18,112],[-32,112]]); ctx.fill();
   ctx.fillStyle = MK; rr(-34, 106, 68, 12, 5); ctx.fill();
@@ -776,7 +832,7 @@ function drawTap(){
   const order = xs.map((x, i) => i).sort((a, b) => Math.abs(xs[b] - 480) - Math.abs(xs[a] - 480));      // la piu' vicina al centro per ultima (davanti)
   for (const i of order){
     const d = Math.min(1, Math.abs(i - tp)), k = 1 - (1 - sc)*d;
-    tapUnit(xs[i], k, i === towerTgt ? flow*0.9 : (i < tp ? -0.12 : 0.12)*d, TYPES[TYPE_ORDER[i]].beer);
+    tapUnit(xs[i], k, i === towerTgt ? flow*0.9 : (i < tp ? -0.12 : 0.12)*d, TYPES[TYPE_ORDER[i]].beer, TYPE_ORDER[i]);
   }
 }
 const enterOffsetWorld = () => glassEnter <= 0 ? 0 : -(480 + G.wmax + 24 - (LAND ? 0 : PX0)) * Math.pow(glassEnter, 3);   // ease-out cubico: parte veloce, arriva morbido
@@ -952,21 +1008,24 @@ function drawCustomers(){
       text(c.popup.text, bx + 49, by + 38, 13, '#b33', 'center', 800, 88);
     } else if (c.popup){
       text('+' + c.popup.score, bx + 49, by + 36, 26, '#3a2a1a', 'center', 900);
-      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + 49, by + 57, 15, '#e59a10', 'center', 800);
+      text(RATING[c.popup.stars], bx + 49, by + 57, 15, RATING_COL[c.popup.stars], 'center', 800);
       text(`schiuma ${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, bx + 49, by + 80, 11, '#c9d4f2', 'center', 700);
     }
     if (sel === c.id && waiting) selCard(r, 14);
     ctx.restore();
   }
 }
-function drawProgress(x, y, w, h){                  // barra del punteggio progressiva: si riempie fino all'obiettivo della giornata
-  const k = clamp(dispScore / dayTarget, 0, 1);
+function drawProgress(x, y, w, h){                  // barra del livello medio: da Pessimo (sinistra) a Perfetto (destra), il riempimento scorre fino alla media attuale
+  const k = clamp(dispScore / 3, 0, 1), lv = Math.round(dispScore);
   ctx.fillStyle = '#3a4670'; rr(x, y, w, h, h/2); ctx.fill();
-  if (k > 0.002){
-    const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, '#3d9be9'); g.addColorStop(1, k >= 1 ? '#3ddc97' : '#7ee2c3');
-    ctx.fillStyle = g; rr(x, y, Math.max(h, w*k), h, h/2); ctx.fill();
+  if (avgLevel() !== null){
+    ctx.fillStyle = LVL_LIGHT[lv]; rr(x, y, Math.max(h, w*k), h, h/2); ctx.fill();
   }
-  ctx.fillStyle = 'rgba(255,255,255,.3)'; for (const t of [1/3, 2/3]) ctx.fillRect(x + w*t - 1, y + 2, 2, h - 4);       // tacche a un terzo e due terzi
+  ctx.fillStyle = 'rgba(255,255,255,.3)'; for (const t of [1/3, 2/3]) ctx.fillRect(x + w*t - 1, y + 2, 2, h - 4);       // tacche tra i livelli
+}
+function levelText(x, y, size, align, w){           // nome del livello medio attuale (o "—" se non hai ancora servito)
+  const a = avgLevel();
+  text(a === null ? '—' : RATING[Math.round(a)], x, y, size, a === null ? '#8fa0c8' : LVL_LIGHT[Math.round(a)], align, 800, w);
 }
 function drawHUD(){
   const sc = selCust(), cur = metrics().foamH / FINGER;
@@ -976,13 +1035,13 @@ function drawHUD(){
   text('MONETE', 40, 48, 12, '#8fa0c8');
   text(String(wallet), 40, 78, 28, '#fff');
   text(`GIORNATA ${day}`, 248, 48, 12, '#8fa0c8', 'right');
-  text(`${Math.round(dispScore)} / ${dayTarget}`, 248, 74, 20, dayCleared ? '#3ddc97' : '#fff', 'right');
+  text('LIVELLO MEDIO', 248, 62, 9, '#8fa0c8', 'right'); levelText(248, 80, 18, 'right');
   drawProgress(40, 86, 208, 14);
-  for (let i = 0; i < 1 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < MAX_LIVES; i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
   const n = unlockedCount();
   for (let i = 0; i < TYPE_ORDER.length; i++){
     const T = TYPES[TYPE_ORDER[i]], x = 152 + i*20;
-    if (i < n){ ctx.fillStyle = T.foam; circ(x, 120, 9); ctx.fillStyle = T.beer; circ(x, 121.5, 6.5); }
+    if (i < n){ if (!logo(TYPE_ORDER[i], x, 120, 20)){ ctx.fillStyle = T.foam; circ(x, 120, 9); ctx.fillStyle = T.beer; circ(x, 121.5, 6.5); } }
     else { ctx.fillStyle = '#3a4670'; circ(x, 120, 8); text('?', x, 124, 11, '#6f7da6', 'center', 800); }
   }
 
@@ -990,8 +1049,9 @@ function drawHUD(){
   ctx.fillStyle = 'rgba(16,23,43,.72)'; rr(24, 150, 240, 212, 14); ctx.fill();
   const T = glassType ? TYPES[glassType] : sc ? TYPES[sc.type] : null;
   if (T){
-    ctx.fillStyle = T.beer; circ(48, 174, 9); ctx.strokeStyle = T.foam; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(48, 174, 9, 0, 7); ctx.stroke();
-    text(T.name, 64, 180, 17, '#fff');
+    const gk = glassType || sc.type, hasLogo = logo(gk, 50, 172, 40);
+    if (!hasLogo){ ctx.fillStyle = T.beer; circ(48, 174, 9); ctx.strokeStyle = T.foam; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(48, 174, 9, 0, 7); ctx.stroke(); }
+    text(T.name, hasLogo ? 80 : 64, 180, 17, '#fff');
     text(sc ? `${fmt(sc.fingers)} dita` : '—', 248, 179, 13, '#8fa0c8', 'right', 700);
   } else text('Nessuna birra', 40, 180, 15, '#8fa0c8');
 
@@ -1018,8 +1078,8 @@ function drawHUD(){
 const CONF = ['#ffd54a', '#ff6b6b', '#4cd7a0', '#58a6ff', '#c792ea', '#ffffff'];
 function celebrate(c, stars){
   const r = slotRect(c.slot), cx = r.x + r.w/2, cy = r.y + r.h/2, big = stars >= 3;
-  if (stars < 2){                                   // birra mediocre (1 stella) o pessima (0): animazione negativa, piu' forte se pessima
-    const bad = stars === 0, RED = '255,93,93';
+  if (stars < 1){                                   // birra pessima: animazione negativa
+    const bad = true, RED = '255,93,93';
     fx.push({ t: 'flash', x: r.x, y: r.y, w: r.w, h: r.h, life: .6, max: .6, rgb: RED });
     fx.push({ t: 'ring', x: cx, y: cy, size: bad ? 100 : 60, life: .6, max: .6, rgb: RED });
     for (let i = 0, n = bad ? 22 : 10; i < n; i++){            // gocce/pezzetti che cadono verso il basso
@@ -1027,25 +1087,26 @@ function celebrate(c, stars){
       fx.push({ t: 'conf', x: cx + (Math.random() - .5)*40, y: cy, vx: Math.cos(a)*v, vy: Math.sin(a)*v*.5, g: 520, life, max: life, col: pick(['#ff5d5d', '#8fa0c8', '#5d6b94']),
                 w: 4 + Math.random()*4, h: 6 + Math.random()*5, rot: Math.random()*6, vr: (Math.random() - .5)*8 });
     }
-    fx.push({ t: 'text', x: Math.min(Math.max(cx, 110), CW - 110), y: cy + 6, vy: 40, life: 1.3, max: 1.3, text: bad ? 'Bleah!' : 'Mah...', col: '#ff8a8a', size: bad ? 26 : 20 });
+    fx.push({ t: 'text', x: Math.min(Math.max(cx, 110), CW - 110), y: cy + 6, vy: 40, life: 1.3, max: 1.3, text: 'Pessimo!', col: '#ff8a8a', size: bad ? 26 : 20 });
     if (bad) shake = Math.max(shake, .25);
     return;
   }
+  const mid = stars === 1;                          // Bene: effetto sobrio
   fx.push({ t: 'flash', x: r.x, y: r.y, w: r.w, h: r.h, life: .7, max: .7 });
-  fx.push({ t: 'ring', x: cx, y: cy, size: big ? 120 : 75, life: .7, max: .7 });
+  fx.push({ t: 'ring', x: cx, y: cy, size: big ? 120 : mid ? 55 : 75, life: .7, max: .7 });
   if (big) fx.push({ t: 'ring', x: cx, y: cy, size: 190, life: 1, max: 1, delay: .15 });
-  for (let i = 0, n = big ? 48 : 18; i < n; i++){
+  for (let i = 0, n = big ? 48 : mid ? 8 : 18; i < n; i++){
     const a = Math.PI*1.5 + (Math.random() - .5)*2.8, v = 150 + Math.random()*340, life = 1.2 + Math.random()*.9;
     fx.push({ t: 'conf', x: cx, y: cy, vx: Math.cos(a)*v, vy: Math.sin(a)*v, g: 650, life, max: life, col: pick(CONF),
               w: 5 + Math.random()*5, h: 8 + Math.random()*6, rot: Math.random()*6, vr: (Math.random() - .5)*14 });
   }
-  for (let i = 0, n = big ? 14 : 6; i < n; i++){
+  for (let i = 0, n = big ? 14 : mid ? 0 : 6; i < n; i++){
     const a = Math.PI*1.5 + (Math.random() - .5)*3.2, v = 80 + Math.random()*220, life = 1.1 + Math.random()*.8;
     fx.push({ t: 'star', x: cx, y: cy, vx: Math.cos(a)*v, vy: Math.sin(a)*v - 40, g: 180, life, max: life,
               size: 7 + Math.random()*(big ? 11 : 7), rot: Math.random()*6, vr: (Math.random() - .5)*6 });
   }
-  fx.push({ t: 'text', x: Math.min(Math.max(cx, 110), CW - 110), y: cy + 6, vy: -55, life: 1.5, max: 1.5, text: big ? 'PERFETTO!' : 'Ottimo!',
-            col: big ? '#ffd54a' : '#7ee2c3', size: big ? 30 : 24 });
+  fx.push({ t: 'text', x: Math.min(Math.max(cx, 110), CW - 110), y: cy + 6, vy: -55, life: 1.5, max: 1.5, text: big ? 'PERFETTO!' : mid ? 'Bene' : 'Ottimo!',
+            col: big ? '#ffd54a' : mid ? '#a9c7ff' : '#7ee2c3', size: big ? 30 : mid ? 20 : 24 });
   if (big) shake = Math.max(shake, .15);
 }
 function updateFx(dt){
@@ -1115,7 +1176,7 @@ function drawLegend(x, y, w, compact){
       text('???', compact ? x + 21 : x + 34, cy + 4, compact ? 10 : 12, '#6f7da6', 'left', 800);
       continue;
     }
-    ctx.fillStyle = T.foam; circ(cx, cy, compact ? 6.5 : 8); ctx.fillStyle = T.beer; circ(cx, cy + 1, compact ? 4.5 : 5.5);
+    if (!logo(key, cx, cy, compact ? 19 : 17)){ ctx.fillStyle = T.foam; circ(cx, cy, compact ? 6.5 : 8); ctx.fillStyle = T.beer; circ(cx, cy + 1, compact ? 4.5 : 5.5); }
     text(T.name, compact ? x + 21 : x + 34, cy + 4, compact ? 11 : 13, '#fff', 'left', 800, compact ? 42 : 70);
     const fy = compact ? ry + 0 : cy - 3, hy = compact ? ry + 9 : cy - 3, bh = compact ? 6 : 7;
     ctx.fillStyle = '#3a4670'; rr(bx1, fy, bw, bh, bh/2); ctx.fill();
@@ -1148,24 +1209,39 @@ function drawServeBubble(){                          // freccia SERVI verso dest
   ctx.restore();
   serveRect = { x, y, w: bw, h: bh };
 }
-const floatGeom = () => { const rx = 106, ry = 62, W2 = 10; return { rx, ry, W2, ax: clamp(floatX0 - 20, 14 + W2, CW - rx - 14 - W2), ay: Math.max(floatY0 - 34 - ry - W2, 14 + W2) }; };   // sopra il dito, così non lo copre
+const floatGeom = () => {
+  if (floatFlat || hideFloat){                       // versione minimale (anche quando il joystick è invisibile: la scritta "Rilascia per servire" si posiziona come nella minimale): più piccola e segue il dito; il cursore sta sempre un po' in alto a destra rispetto al dito
+    const rx = 84, ry = 50, W2 = 8;                  // ancorata al punto di riferimento (che si sposta con il dito quando va oltre lo zero, vedi setJoystick), un po' in alto a destra
+    return { rx, ry, W2, KR: 12, ax: clamp(floatX0 + 28, 14 + W2, CW - rx - 14 - W2), ay: Math.max(floatY0 - 30, 14 + W2) };
+  }
+  const rx = 106, ry = 62, W2 = 10; return { rx, ry, W2, ax: clamp(floatX0 - 20, 14 + W2, CW - rx - 14 - W2), ay: Math.max(floatY0 - 34 - ry - W2, 14 + W2) }; };   // sopra il dito, così non lo copre
 function drawReleaseLabel(){                        // modalità servizio automatico: scritta sopra il joystick (flottante: sopra la T che segue il dito; fisso: sopra il pannello)
   if (serveMode !== 'auto' || serveAnim <= 0.02 || mode !== 'playing') return;
   let cx, cy;
   if (joyMode === 'float'){ if (!touching) return; const f = floatGeom(); cx = f.ax + f.rx/2; cy = f.ay - f.W2 - 24; }
   else { cx = LAND ? 676 + (CW - 684)/2 + 4 : CW/2; cy = (LAND ? 436 : CH - JZ_H + 4) - 22; }
-  ctx.font = '900 17px system-ui,sans-serif';
-  const w = ctx.measureText('Rilascia per servire').width + 30, k = 0.7 + 0.3*(1 - Math.pow(1 - serveAnim, 3));
+  ctx.font = '900 14px system-ui,sans-serif';
+  const w = ctx.measureText('Rilascia per servire').width + 26, k = (0.7 + 0.3*(1 - Math.pow(1 - serveAnim, 3))) * (1 + 0.03*Math.sin(time*7));   // entra con uno scatto e poi pulsa di continuo
   cx = clamp(cx, w/2 + 8, CW - w/2 - 8);
   ctx.save(); ctx.globalAlpha = serveAnim; ctx.translate(cx, cy); ctx.scale(k, k);
-  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#3ddc97';
-  rr(-w/2, -17, w, 34, 17); ctx.fill(); ctx.stroke();
-  text('Rilascia per servire', 0, 6, 17, '#10172b', 'center', 900);
+  ctx.lineJoin = 'round'; ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff';
+  ctx.fillStyle = 'rgba(16,23,43,.72)'; rr(-w/2, -14, w, 28, 14); ctx.fill(); ctx.stroke();   // sfondo scuro semitrasparente, bordo bianco
+  text('Rilascia per servire', 0, 5, 14, '#fff', 'center', 900);
   ctx.restore();
 }
 function drawFloatJoystick(){                       // modalità "ovunque": una piccola T compare sopra il punto in cui hai appoggiato il dito e ne segue il movimento
-  const { rx, ry, W2, ax, ay } = floatGeom(), KR = 15;
+  const { rx, ry, W2, ax, ay, KR = 15 } = floatGeom();
   const kx = ax + joyRX*rx, ky = ay + joyRY*ry;
+  if (floatFlat){                                     // versione minimale: tutto bianco, senza bordi, semitrasparente (le forme sono unite in un solo tracciato così non si scuriscono dove si sovrappongono)
+    const add = (x, y, w, h, r) => { ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); };
+    ctx.save(); ctx.fillStyle = '#fff';
+    ctx.globalAlpha = .2; ctx.beginPath(); add(ax - W2, ay - W2, rx + 2*W2, 2*W2, W2); add(kx - W2, ay - W2, 2*W2, ry + 2*W2, W2); ctx.fill();   // sfondo T
+    ctx.globalAlpha = .3; ctx.beginPath(); if (kx - ax > 1) add(ax - W2, ay - W2, kx - ax + 2*W2, 2*W2, W2); if (ky - ay > 1) add(kx - W2, ay - W2, 2*W2, ky - ay + 2*W2, W2); ctx.fill();   // parte riempita
+    ctx.globalAlpha = .45; circ(kx, ky, KR);
+    ctx.restore();
+    flowChevrons(kx, ky + KR*.6, W2, ay + ry + W2, '255,255,255');
+    return;
+  }
   ctx.lineJoin = 'round'; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.6)';
   ctx.fillStyle = 'rgba(16,23,43,.85)'; rr(ax - W2, ay - W2, rx + 2*W2, 2*W2, W2); ctx.fill(); ctx.stroke();                 // barra (inclinazione)
   if (kx - ax > 1){ ctx.fillStyle = '#ffd54a'; rr(ax - W2 + 3, ay - W2 + 3, kx - ax + 2*W2 - 6, 2*W2 - 6, W2 - 3); ctx.fill(); }
@@ -1175,14 +1251,14 @@ function drawFloatJoystick(){                       // modalità "ovunque": una 
   ctx.fillStyle = '#ffd54a'; circ(kx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(kx, ky, KR, 0, 7); ctx.stroke();
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(floatX0, floatY0, 12, 0, 7); ctx.stroke();   // dove hai appoggiato il dito
 }
-function flowChevrons(kx, ky, W2, yEnd){            // gamba del flusso: freccette che scorrono di continuo verso il basso (invito a trascinare giù)
+function flowChevrons(kx, ky, W2, yEnd, rgb = '61,155,233'){            // gamba del flusso: freccette che scorrono di continuo verso il basso (invito a trascinare giù)
   if (mode !== 'playing' || yEnd - ky < 6) return;
   const step = W2*1.35, off = (time*W2*1.8) % step, hw = W2*.5, hh = W2*.42;
   ctx.save(); rr(kx - W2 + 3, ky, 2*W2 - 6, yEnd - ky, W2 - 3); ctx.clip();
   ctx.lineWidth = Math.max(2.5, W2*.2); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   for (let y = ky + off - step; y < yEnd + step; y += step){
     const a = Math.min(1, Math.max(0, (y - ky)/step))*Math.min(1, Math.max(0, (yEnd - y)/step));   // dissolvenza in alto e in basso
-    ctx.strokeStyle = `rgba(61,155,233,${.75*a})`; ctx.beginPath(); ctx.moveTo(kx - hw, y - hh); ctx.lineTo(kx, y + hh); ctx.lineTo(kx + hw, y - hh); ctx.stroke();
+    ctx.strokeStyle = `rgba(${rgb},${.75*a})`; ctx.beginPath(); ctx.moveTo(kx - hw, y - hh); ctx.lineTo(kx, y + hh); ctx.lineTo(kx + hw, y - hh); ctx.stroke();
   }
   ctx.restore();
 }
@@ -1232,7 +1308,7 @@ function drawCustomersPortrait(){
       text(c.popup.text, bx + bw/2, by + 32, 10, '#b33', 'center', 800, bw - 4);
     } else if (c.popup){
       text('+' + c.popup.score, bx + bw/2, by + 28, 18, '#3a2a1a', 'center', 900);
-      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + bw/2, by + 46, 10, '#e59a10', 'center', 800);
+      text(RATING[c.popup.stars], bx + bw/2, by + 46, 10, RATING_COL[c.popup.stars], 'center', 800);
     }
     if (sel === c.id && waiting) selCard(r, 12);
     ctx.restore();
@@ -1242,9 +1318,9 @@ function drawStrip(){                               // telefono: striscia in cim
   ctx.save(); ctx.translate(0, -126);
   ctx.fillStyle = 'rgba(16,23,43,.92)'; rr(8, 136, 464, 40, 12); ctx.fill();
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
-  text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(`${Math.round(dispScore)} / ${dayTarget}`, 296, 150, 9, dayCleared ? '#3ddc97' : '#fff', 'right', 800);
+  text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); levelText(296, 150, 9, 'right');
   drawProgress(92, 156, 204, 14);
-  for (let i = 0; i < 1 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < MAX_LIVES; i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
   ctx.restore();
 }
 function drawMetersStrip(){               // schiumometro: striscia in alto nella scena, a destra del rubinetto
@@ -1300,7 +1376,7 @@ function draw(){
   }
   if (mode !== 'menu' && joyMode === 'fixed') drawJoystickZone();       // con il joystick ovunque resta solo la piccola T che appare sotto il dito
   if (!LAND) drawHintPill(CW/2, CH - 34);                                    // suggerimento: centrato e più in basso possibile, sopra al pannello del joystick
-  if (joyMode === 'float' && touching && mode === 'playing') drawFloatJoystick();
+  if (joyMode === 'float' && touching && mode === 'playing' && !hideFloat) drawFloatJoystick();
   drawReleaseLabel();
   drawFx();
   ctx.restore();
@@ -1331,6 +1407,8 @@ ovb.addEventListener('click', e => {
     applyLayout();                                       // senza il joystick grande la scena può usare tutto lo schermo
     ovb.innerHTML = pauseHTML();                       // ridisegna il menu: il cursore della scala compare solo con il joystick ovunque
   }
+  if (e.target.closest('[data-act="hidefloat"]')){ hideFloat = !hideFloat; localStorage.setItem('birra_hidefloat', hideFloat ? '1' : '0'); ovb.innerHTML = pauseHTML(); }
+  if (e.target.closest('[data-act="flatfloat"]')){ floatFlat = !floatFlat; localStorage.setItem('birra_floatflat', floatFlat ? '1' : '0'); ovb.innerHTML = pauseHTML(); }
   if (e.target.closest('[data-act="servemode"]')){
     serveMode = serveMode === 'auto' ? 'drag' : 'auto'; localStorage.setItem('birra_servemode', serveMode); autoServe = false; autoP = 0;
     ovb.innerHTML = pauseHTML();
@@ -1343,7 +1421,11 @@ const toCanvas = e => { const r = cv.getBoundingClientRect(); return { x: (e.cli
 function setJoystick(e, first){                      // il cursore della T segue il dito/mouse; giù = flusso, destra = inclinazione
   const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * CW / r.width, y = (e.clientY - r.top) * CH / r.height, g = jzGeom();
   if (joyMode === 'float'){                          // joystick flottante: conta lo spostamento rispetto a dove hai appoggiato il dito (ovunque)
+    floatFX = x; floatFY = y;
     if (first){ floatX0 = x; floatY0 = y; joyRX = joyRY = joyX = 0; fingerV = 0; return; }
+    const tx = (LAND ? 260 : 290) * floatScale, ty = (LAND ? 130 : 150) * floatScale;     // corsa completa degli slider
+    if (x < floatX0) floatX0 = x; if (y < floatY0) floatY0 = y;
+    if (x - floatX0 > tx) floatX0 = x - tx; if (y - floatY0 > ty) floatY0 = y - ty;      // anche a slider pieni il riferimento segue il dito: se inverti la direzione riparte subito     // oltre lo zero (a sinistra / in alto) il punto di riferimento segue il dito: appena cambi direzione lo slider riparte subito
     joyRX = clamp((x - floatX0) / ((LAND ? 260 : 290) * floatScale), 0, 1); joyRY = clamp((y - floatY0) / ((LAND ? 130 : 150) * floatScale), 0, 1);   // la scala decide di quanto deve muoversi il dito
   } else {                                           // T fissa: il dito sta sulla T
     joyRX = clamp((x - g.ax) / g.rx, 0, 1); joyRY = clamp((y - g.ay) / g.ry, 0, 1);

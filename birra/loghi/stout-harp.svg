@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="-30" y1="-50" x2="30" y2="50"><stop offset="0" stop-color="#d9b25a"/><stop offset="1" stop-color="#a8792a"/></linearGradient>
+  <radialGradient id="bg" cx=".4" cy=".35" r=".8"><stop offset="0" stop-color="#262626"/><stop offset=".6" stop-color="#0d0d0d"/><stop offset="1" stop-color="#000"/></radialGradient></defs>
+  <circle cx="128" cy="128" r="126" fill="url(#bg)"/>
+  <g transform="translate(128 68) scale(1.0)" fill="none" stroke="url(#g)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M-20 -30 Q-14 -56 24 -16" stroke-width="7"/>
+    <path d="M24 -16 C 14 6, 36 26, 22 44" stroke-width="7"/>
+    <path d="M-20 -30 L-12 40" stroke-width="10"/>
+    <path d="M-16 44 L24 44" stroke-width="6"/>
+    <g stroke-width="1.6"><line x1="-18.0" y1="-33.5" x2="-23.5" y2="-19.5"/><line x1="-15.0" y1="-36.9" x2="-20.0" y2="-16.9"/><line x1="-11.0" y1="-38.2" x2="-15.5" y2="-12.2"/><line x1="-6.0" y1="-37.5" x2="-10.0" y2="-5.5"/><line x1="0.0" y1="-34.7" x2="-3.5" y2="3.3"/><line x1="7.0" y1="-29.9" x2="4.0" y2="14.1"/><line x1="15.0" y1="-23.0" x2="12.5" y2="27.0"/></g>
+  </g>
+  <g font-family="'DejaVu Serif',Georgia,serif" fill="#fff" font-size="9" letter-spacing="2">
+    <text x="106" y="118" text-anchor="end" textLength="40" lengthAdjust="spacing">ESTD</text>
+    <text x="150" y="118" textLength="38" lengthAdjust="spacing">1789</text>
+  </g>
+  <text x="128" y="170" font-family="'DejaVu Sans',Arial,sans-serif" font-weight="700" font-size="40" fill="#fff" text-anchor="middle" textLength="200" lengthAdjust="spacingAndGlyphs" style="font-stretch:condensed">HARPSTONE</text>
+  <text x="128" y="214" font-family="'URW Chancery L','Z003','Apple Chancery',cursive" font-style="italic" font-size="26" fill="#8a8a8a" text-anchor="middle" textLength="110" lengthAdjust="spacingAndGlyphs">Arth. Harpstone</text>
+  <path d="M82 222 q46 -8 92 -2" stroke="#8a8a8a" stroke-width="1" fill="none"/>
+</svg>
