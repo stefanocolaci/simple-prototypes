@@ -1360,10 +1360,10 @@ cv.addEventListener('pointerdown', e => {
   const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * CW / r.width, py = (e.clientY - r.top) * CH / r.height;
   const onBubble = serveRect && px >= serveRect.x - 8 && px <= serveRect.x + serveRect.w + 8 && py >= serveRect.y - 8 && py <= serveRect.y + serveRect.h + 8;
   const onGlass = px >= wx(480 - G.wmax - 10) && px <= wx(480 + G.wmax + (G.handle ? 64 : 0) + 10) && py >= wy(G.my) - 12 && py <= wy(TRAY_Y) + 6;
-  if (serveAnim > 0.6 && !slideActive && (onBubble || onGlass)){        // inizia lo slide: trascina la birra verso destra
+  if (serveMode !== 'auto' && serveAnim > 0.6 && !slideActive && (onBubble || onGlass)){        // inizia lo slide: trascina la birra verso destra
     slideActive = true; slideX0 = px; slideOff = 0; cap(); return;
   }
-  const startJoy = joyMode === 'float' ? !onGlass : inJoyZone(px, py);   // float: ovunque tranne sul boccale; fixed: solo sulla T in basso
+  const startJoy = joyMode === 'float' ? (serveMode === 'auto' || !onGlass) : inJoyZone(px, py);   // float: ovunque (sul boccale solo in classico, dove serve a trascinarlo); fixed: solo sulla T in basso
   if (startJoy){ touching = true; setJoystick(e, true); cap(); }
 });
 function slideMove(e){                              // il boccale segue il dito verso destra: raggiunta la distanza, la birra viene consegnata
