@@ -1218,10 +1218,13 @@ const floatGeom = () => {
 function drawReleaseLabel(){                        // modalità servizio automatico: scritta sopra il joystick (flottante: sopra la T che segue il dito; fisso: sopra il pannello)
   if (serveMode !== 'auto' || serveAnim <= 0.02 || mode !== 'playing') return;
   let cx, cy;
-  if (joyMode === 'float'){ if (!touching) return; const f = floatGeom(); cx = f.ax + f.rx/2; cy = f.ay - f.W2 - 24; }
+  const gl = joyMode === 'float' && hideFloat;      // joystick invisibile: la scritta sta a destra del boccale, all'altezza del boccale
+  if (gl){ if (!touching) return; cx = wx(480 + G.wmax + (G.handle ? 64 : 0) + 14); cy = wy(G.my) + 8; }
+  else if (joyMode === 'float'){ if (!touching) return; const f = floatGeom(); cx = f.ax + f.rx/2; cy = f.ay - f.W2 - 24; }
   else { cx = LAND ? 676 + (CW - 684)/2 + 4 : CW/2; cy = (LAND ? 436 : CH - JZ_H + 4) - 22; }
   ctx.font = '900 14px system-ui,sans-serif';
   const w = ctx.measureText('Rilascia per servire').width + 26, k = (0.7 + 0.3*(1 - Math.pow(1 - serveAnim, 3))) * (1 + 0.03*Math.sin(time*7));   // entra con uno scatto e poi pulsa di continuo
+  if (gl) cx += w/2;                                // l'ancoraggio è il bordo sinistro della scritta
   cx = clamp(cx, w/2 + 8, CW - w/2 - 8);
   ctx.save(); ctx.globalAlpha = serveAnim; ctx.translate(cx, cy); ctx.scale(k, k);
   ctx.lineJoin = 'round'; ctx.lineWidth = 2.5; ctx.strokeStyle = '#fff';
