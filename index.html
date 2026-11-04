@@ -246,7 +246,7 @@ let parts = [], bub = [];
 let last = null;
 let glassType = null;                       // tipo di birra nel boccale (segue il cliente in testa alla fila)
 let customers = [], sel = null, nextCustId = 1, spawnTimer = 0;
-let score = 0, served = 0, lives = 3;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
+let score = 0, served = 0, lives = 1;        // score = punti totali della partita; wallet = monete (si guadagnano a fine giornata e si spendono nel negozio)
 let dayScore = 0, dayTarget = 300, dispScore = 0, dayCleared = false, dayClearTimer = 0;   // punti della giornata, obiettivo, valore mostrato dalla barra (si riempie in modo progressivo), giornata superata
 let wallet = 0, ups = {};                       // potenziamenti acquistati: id -> livello
 const lvl = id => ups[id] || 0;
@@ -257,7 +257,7 @@ const UPGRADES = [
   { id: 'pat',   name: 'Clienti pazienti',        desc: 'I clienti aspettano di più',         max: 3, price: [45, 80, 120],  fx: ['+10% attesa', '+20% attesa', '+30% attesa'] },
   { id: 'waste', name: 'Antispreco',              desc: 'Penalità ridotte per la birra sprecata', max: 3, price: [35, 60, 95], fx: ['−25% penalità', '−50% penalità', '−75% penalità'] },
   { id: 'goal',  name: 'Obiettivo ridotto',       desc: 'Servono meno punti per superare la giornata', max: 3, price: [60, 100, 150], fx: ['−8% obiettivo', '−16% obiettivo', '−24% obiettivo'] },
-  { id: 'life',  name: 'Vita extra',              desc: 'Più margine di errore',              max: 1, price: [90],           fx: ['4 vite a giornata'] },
+  { id: 'life',  name: 'Vita extra',              desc: 'Una vita in più ogni giornata',              max: 3, price: [60, 100, 150], fx: ['2 vite a giornata', '3 vite a giornata', '4 vite a giornata'] },
   { id: 'meter', name: 'Schiumometro',            desc: 'Schiuma e riempimento anche su telefono', max: 1, price: [70],      fx: ['pannello sempre visibile'], only: () => !LAND }
 ];
 let day = 1, dayLog = [], dayNotes = [], roundCoins = null;   // giornata corrente: registro delle birre, note, monete del round
@@ -265,9 +265,13 @@ let toast = null, shake = 0, wipe = 0, fx = [];
 let PZ = 1.25, PX0 = 365;                       // vista verticale: zoom e angolo sinistro della scena nel mondo
 let PY0 = 112;
 const PSY = 178;                                 // altezza della fascia dei clienti in alto (telefono)                      // y mondo in alto nella scena, y canvas dove inizia la scena
+let towerPos = -1, towerTgt = 0;                // torre spine: indice (frazionario) della spina allineata al boccale
 let glassEnter = 0, glassHold = 0;             // 1 -> 0: il nuovo boccale vuoto entra da sinistra, dopo una breve pausa (glassHold, secondi)
 let slideActive = false, slideX0 = 0, slideOff = 0;        // servire = trascinare il boccale verso destra (scivola con il dito)
-const SLIDE_DIST = 190;                        // distanza di trascinamento (unità di scena) per consegnare
+let serveMode = localStorage.getItem('birra_servemode') === 'auto' ? 'auto' : 'drag';   // drag = trascini il boccale a destra; auto = rilasci il dito e parte da solo
+let autoServe = false, autoP = 0;              // servizio automatico: in attesa / avanzamento (0..1) dello scorrimento
+const SLIDE_DIST = 190;
+const autoDist = () => LAND ? 960 - 480 + G.wmax + (G.handle ? 70 : 0) + 30 : (CW - wx(480) + (G.wmax + (G.handle ? 70 : 0))*PZ + 30);   // servizio automatico: il boccale esce del tutto dallo schermo a destra                        // distanza di trascinamento (unità di scena) per consegnare
 const JZ = true;                                 // il joystick è sempre fisso in un'area riservata
 let serveAnim = 0, serveRect = null;
 const JZ_H = 210;
@@ -286,14 +290,14 @@ let LAND = true, CW = 960, CH = 600;      // layout orizzontale (PC) o verticale
 /* ============================ CLIENTI ============================ */
 const TYPE_ORDER = ['lager', 'ipa', 'pils', 'weiss', 'rossa', 'stout'];
 const FINGER_CHOICES = [1, 1.5, 2, 2.5, 3];
-const SLOT_X = 772, SLOT_W = 172, SLOT_H = 98, SLOT_GAP = 6, SLOT_Y0 = 14;
+const SLOT_X = 760, SLOT_W = 184, SLOT_H = 96, SLOT_GAP = 6, SLOT_Y0 = 14;
 const slotRect = i => LAND ? { x: SLOT_X, y: SLOT_Y0 + i*(SLOT_H + SLOT_GAP), w: SLOT_W, h: SLOT_H }
-                            : { x: 8 + i*118, y: 64, w: 111, h: 112 };      // telefono: sotto la striscia dei dettagli della partita
+                            : { x: 480 - 8 - 120, y: 62 + i*72, w: 120, h: 68 };      // telefono: colonna in alto a destra, sotto la striscia dei dettagli della partita
 const unlockedFor   = d => Math.min(TYPE_ORDER.length, d);            // una birra in più ogni giornata
 const seatsFor      = d => Math.min(4, 2 + Math.max(0, d - 2));       // un posto in più ogni giornata, ma a partire dalla terza
 const unlockedCount = () => unlockedFor(day);
 const seatCount     = () => seatsFor(day);
-const patienceFor   = () => Math.max(55, 90 - served*0.6) * (1 + 0.1*lvl('pat'));
+const patienceFor   = () => Math.max(38, 62 - served*0.5) * (1 + 0.1*lvl('pat'));
 const spawnGap      = () => Math.max(10, 22 - served*0.4);
 const minQueue      = () => Math.min(seatCount(), 1 + Math.floor(served/6));   // clienti in attesa che il bar cerca di avere sempre
 const fmt = v => v.toFixed(1).replace('.', ',');
@@ -369,24 +373,25 @@ function judge(c){
   return { score: s, stars: s >= 85 ? 3 : s >= 60 ? 2 : s >= 30 ? 1 : 0, foamH: m.foamH, target, gap: m.gap,
            foamPts, fillPts, speedPts, spillPts, wait: c.max - c.t };
 }
-function deliver(c){
+function deliver(c, keepGlass){                     // keepGlass: il boccale resta in scena (servizio automatico: scorre via mentre partono gia' gli effetti)
   const r = judge(c);
   dayScore += r.score; score += r.score; served++;
   c.state = r.score >= 60 ? 'happy' : r.score >= 30 ? 'meh' : 'angry';
   c.leave = 2.6; c.popup = r;
   if (sel === c.id) sel = null;
-  ding(r.stars > 0, r.stars);
+  ding(r.stars > 1, r.stars);
   wipe = .8;                       // il barista passa lo straccio: la birra caduta sparisce
   celebrate(c, r.stars);
   dayLog.push({ type: c.type, fingers: c.fingers, lost: false, ...r });
   if (dayScore >= dayTarget && !dayCleared){ dayCleared = true; dayClearTimer = 1.5; flash('Obiettivo raggiunto!'); }
-  emptyGlass(false); glassEnter = 1; glassHold = 0.5;   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
+  if (!keepGlass) finishDeliver();
 }
+function finishDeliver(){ emptyGlass(false); glassEnter = 1; glassHold = 0.5; }   // il nuovo boccale vuoto entra da sinistra dopo mezzo secondo
 function newGame(){ score = 0; wallet = 0; ups = {}; served = 0; day = 1; startDay(); }
 function startDay(){
   dayScore = 0; dispScore = 0; dayCleared = false; dayClearTimer = 0; dayLog = []; dayNotes = [];
   dayTarget = Math.round(dayTargetBase(day) * (1 - 0.08*lvl('goal')) / 10) * 10;
-  lives = 3 + lvl('life'); gameTime = 0; customers = []; sel = null; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
+  lives = 1 + lvl('life'); gameTime = 0; customers = []; sel = null; autoServe = false; autoP = 0; spawnTimer = 0.8; puddle = 0; wipe = 0; toast = null; parts = []; fx = [];
   emptyGlass(false); glassEnter = 1; glassHold = 0.1; hideOverlay();
   const nb = day > 1 && unlockedFor(day) > unlockedFor(day - 1) ? ` · nuova birra: ${TYPES[TYPE_ORDER[unlockedFor(day) - 1]].name}` : '';
   flash(`Giornata ${day}: obiettivo ${dayTarget} punti${nb}`);
@@ -430,6 +435,7 @@ const fixedBox = () => joyMode !== 'fixed' ? '' : `<div class="scalebox"><label 
 const scaleBox = () => joyMode !== 'float' ? '' : `<div class="scalebox"><label for="fscale">Corsa del dito: <b id="fsv">${Math.round(floatScale*100)}%</b></label>
     <input type="range" id="fscale" min="40" max="200" step="5" value="${Math.round(floatScale*100)}">
     <p class="muted" id="fst">${floatTravel()} per muovere gli slider al massimo. Più basso = basta muovere meno il dito.</p></div>`;
+const serveLabel = () => (serveMode === 'auto' ? 'Servizio: automatico, appena rilasci il dito' : 'Servizio: classico, trascina il boccale a destra') + ' — tocca per cambiare';
 const joyHint = () => joyMode === 'float' ? 'Trascina ovunque: giù = flusso, destra = inclina' : 'Joystick: giù = flusso, destra = inclina';
 function pauseHTML(){
   const act = UPGRADES.filter(u => lvl(u.id) > 0);
@@ -443,6 +449,7 @@ function pauseHTML(){
     <button class="sec" data-act="help">Istruzioni e carta delle birre</button>
     <button class="sec" data-act="joymode">${joyLabel()}</button>
     ${scaleBox()}${fixedBox()}
+    <button class="sec" data-act="servemode">${serveLabel()}</button>
     <button class="sec" data-act="snd">${soundLabel()}</button>`;
 }
 function pauseGame(){
@@ -464,15 +471,15 @@ function cartaHTML(){
 }
 function helpHTML(){
   return `<div class="helplist">${cartaHTML()}<ul>
-    <li>I clienti si servono in <b>ordine di arrivo</b>: il primo della fila è quello evidenziato (<b>PROSSIMO</b>). Il fumetto mostra tipo di birra e dita di schiuma richieste; la barra è la sua pazienza.</li>
+    <li>I clienti si servono in <b>ordine di arrivo</b>: il primo della fila è quello evidenziato (<b>PROSSIMO</b>). Il fumetto mostra tipo di birra e dita di schiuma richieste e si colora di rosso dal basso man mano che la pazienza finisce.</li>
     <li><b>Joystick</b>: l'area in basso allo schermo (su PC in basso a destra) è riservata a una <b>T fissa</b>. Appoggia il dito (o il mouse) sul cursore giallo e trascinalo: la barra orizzontale è l'inclinazione (verso destra inclina il boccale), la gamba verso il basso è il flusso (verso il basso lo aumenta, da goccia a getto pieno). Rilasciando il rubinetto si chiude e il boccale torna dritto. Con questo controllo il resto dello schermo non risponde al tocco.</li>
     <li><b>Joystick ovunque</b> (si sceglie dal menu di pausa): appoggia il dito dove vuoi, tranne sul boccale. Il dito agisce come joystick flottante: conta lo spostamento da dove hai iniziato (destra = inclina, giù = flusso) e la T in basso resta al suo posto e mostra cosa stai facendo, senza il dito sopra.</li>
     <li>Il getto sul bordo del boccale inclinato fa <b>poca schiuma</b>, quello dritto ne fa tanta, e un flusso basso ne fa ancora meno. La linea tratteggiata sul vetro mostra dove deve arrivare la birra: sopra c'è la schiuma richiesta.</li>
-    <li>Quando il boccale è pieno almeno al 95% (e dritto) compare accanto al boccale il fumetto <b>SERVI ▶▶</b>: appoggia il dito sul fumetto o sul boccale e <b>trascinalo verso destra</b>: il boccale scivola insieme al dito e, arrivato in fondo, la birra viene consegnata al cliente in testa alla fila. Se lasci prima, il boccale torna al suo posto. Se il cliente se ne va, la birra nel boccale passa al prossimo. </li>
+    <li>Quando il boccale è pieno almeno al 95% (e dritto) compare accanto al boccale il fumetto <b>SERVI ▶▶</b>: appoggia il dito sul fumetto o sul boccale e <b>trascinalo verso destra</b>: il boccale scivola insieme al dito e, arrivato in fondo, la birra viene consegnata al cliente in testa alla fila. Se lasci prima, il boccale torna al suo posto. (Nel menu di pausa puoi attivare il <b>servizio automatico</b>: appena rilasci il dito con la birra pronta, il boccale scivola da solo verso il cliente.) Se il cliente se ne va, la birra nel boccale passa al prossimo. </li>
     <li>Ogni birra ha il suo carattere (quanta schiuma fa e quanto resiste): lo vedi nella <b>carta delle birre</b>. La Stout, per esempio, ha una schiuma cremosa che dura molto.</li>
     <li>Ogni <b>giornata</b> ha un <b>obiettivo di punti</b>, mostrato dalla barra in alto: non c'è limite di tempo. Ogni birra dà da 0 a 100 punti (schiuma, riempimento, velocità, sprechi). Raggiunto l'obiettivo la giornata è superata.</li>
     <li>A fine giornata guadagni <b>monete</b> in base ai punti, alla media di stelle, alle vite rimaste e alle birre perfette: spendile nel <b>negozio</b> per potenziare il bar. Ogni giornata si aggiunge una nuova birra in carta e, dalla terza, un posto al bancone.</li>
-    <li>Se un cliente se ne va perdi una vita (3 per giornata). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
+    <li>Se un cliente se ne va perdi una vita (ne hai una sola per giornata: altre, fino a 3, si comprano nel negozio). Se le perdi tutte prima di arrivare all'obiettivo, la partita finisce.</li>
     <li>Il controllo è lo stesso su telefono e su PC (con il mouse): joystick fisso a T per versare e trascinamento della freccia SERVI per consegnare. Esc o P = pausa.</li>
   </ul></div>`;
 }
@@ -521,16 +528,28 @@ let ac = null, clickBuf, muted = false, wasOpen = false;
 // suono della birra che scende nel bicchiere (file audio): in loop, volume legato al flusso
 const pourEl = new Audio('audio/beer-pour.mp3');
 pourEl.loop = true; pourEl.preload = 'auto';
+try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch(e){}   // iOS: l'audio WebAudio ignora l'interruttore silenzioso (altrimenti si sentirebbe solo il file mp3)
 function audioInit(){
-  // sblocca la riproduzione audio con il primo click dell'utente
-  pourEl.volume = 0; pourEl.play().then(() => pourEl.pause()).catch(() => {});
-  if (ac) return;
-  try {
-    ac = new (window.AudioContext || window.webkitAudioContext)();
-    clickBuf = ac.createBuffer(1, Math.floor(ac.sampleRate*.04), ac.sampleRate);
-    const cd = clickBuf.getChannelData(0); for (let i = 0; i < cd.length; i++) cd[i] = (Math.random()*2 - 1) * (1 - i/cd.length);
-  } catch(e){ ac = null; }
+  // sblocca la riproduzione audio con un gesto dell'utente (iOS vuole touchend/click, non basta pointerdown)
+  if (pourEl.paused){ pourEl.volume = 0; pourEl.play().then(() => { if (pourEl.volume === 0) pourEl.pause(); }).catch(() => {}); }
+  if (!ac){
+    try {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      clickBuf = ac.createBuffer(1, Math.floor(ac.sampleRate*.04), ac.sampleRate);
+      const cd = clickBuf.getChannelData(0); for (let i = 0; i < cd.length; i++) cd[i] = (Math.random()*2 - 1) * (1 - i/cd.length);
+    } catch(e){ ac = null; }
+  }
+  wakeAudio();
 }
+function wakeAudio(){                                  // iOS lascia il contesto 'suspended' o 'interrupted' (dopo pausa, telefonate, cambio app): va ripreso a ogni gesto
+  if (!ac || ac.state === 'running') return;
+  try {
+    const r = ac.resume(); if (r && r.catch) r.catch(() => {});
+    const b = ac.createBuffer(1, 1, 22050), n = ac.createBufferSource(); n.buffer = b; n.connect(ac.destination); n.start(0);   // suono vuoto: completa lo sblocco
+  } catch(e){}
+}
+['touchend', 'pointerup', 'click', 'keydown'].forEach(ev => window.addEventListener(ev, audioInit, { capture: true, passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wakeAudio(); });
 // level 0..1 = apertura del rubinetto; kind = dove cade il getto (sul bordo è più morbido)
 function pourSound(level, kind){
   const v = muted ? 0 : clamp(level * (kind === 'wall' ? 0.65 : 1), 0, 1);
@@ -541,6 +560,7 @@ function pourSound(level, kind){
 // "clac" della valvola quando si apre o si chiude il rubinetto
 function clack(open){
   if (!ac || muted) return;
+  wakeAudio();
   const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
   o.type = 'triangle'; o.frequency.setValueAtTime(open ? 170 : 120, t); o.frequency.exponentialRampToValueAtTime(45, t + .09);
   g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + .12);
@@ -551,6 +571,7 @@ function clack(open){
 }
 function ding(good, stars){
   if (!ac || muted) return;
+  wakeAudio();
   const t = ac.currentTime;
   (good ? (stars >= 3 ? [660, 880, 1320, 1760] : stars === 2 ? [660, 880, 1320] : [660, 880]) : [300, 220]).forEach((f, i) => {
     const o = ac.createOscillator(), g = ac.createGain();
@@ -598,6 +619,8 @@ function update(dt){
   if (glassEnter > 0) target = 0;                       // finché il boccale sta entrando non si versa
   const gKey = glassType || (sc ? sc.type : 'lager');
   curType = TYPES[gKey]; BEER = curType.beer; FOAM = curType.foam; setGlass(gKey);
+  if (glassHold <= 0) towerTgt = TYPE_ORDER.indexOf(gKey);        // la torre scorre quando entra il nuovo boccale
+  towerPos = towerPos < 0 ? towerTgt : towerPos + (towerTgt - towerPos)*(1 - Math.exp(-7*dt));
   flow = clamp(flow + clamp(target - flow, -8*dt, 6*dt), 0, 1);
   const isOpen = flow > 0.05;
   if (isOpen !== wasOpen){ clack(isOpen); wasOpen = isOpen; }
@@ -633,8 +656,19 @@ function update(dt){
   }
   beer = Math.max(0, beer); foam = Math.max(0, foam);
   if (slideActive && !selCust()) slideActive = false;       // il cliente se n'è andato: gesto annullato
-  if (!slideActive) slideOff *= Math.exp(-dt*9);              // se lasci prima della fine, il boccale torna al suo posto
-  if (slideOff < 0.5 && !slideActive) slideOff = 0;
+  if (autoServe){                                           // servizio automatico: parte appena il boccale e' dritto; gli effetti (punteggio, stelle, particelle) partono insieme allo scorrimento
+    if (autoP === 0){
+      const c = selCust();
+      if (!c || mode !== 'playing' || !canServe()) autoServe = false;
+      else if (tilt <= 0.15 && flow <= 0.05){ deliver(c, true); autoP = 1e-6; }
+    }
+    if (autoServe && autoP > 0){
+      autoP = Math.min(1, autoP + dt/0.42); slideOff = autoDist()*(1 - Math.pow(1 - autoP, 3));   // stessa durata e curva del boccale che entra (ease-out cubico)
+      if (autoP >= 1){ autoServe = false; autoP = 0; slideOff = 0; finishDeliver(); }
+    }
+  }
+  if (!slideActive && !autoServe) slideOff *= Math.exp(-dt*9);   // se lasci prima della fine, il boccale torna al suo posto
+  if (slideOff < 0.5 && !slideActive && !autoServe) slideOff = 0;
 
   // bollicine nella birra
   if (beer > 800 && bub.length < 40 && Math.random() < 14*dt){
@@ -659,7 +693,7 @@ function update(dt){
   else if (m.foamH > sc.fingers*FINGER + 6) hint = 'Troppa schiuma: lasciala assestare';
   else if (fillFrac() < SERVE_MIN) hint = !touching ? joyHint() : `Riempi almeno il ${Math.round(SERVE_MIN*100)}% per servire`;
   else if (m.gap > 6) hint = 'Manca ancora un po\' per arrivare al bordo';
-  else hint = 'Pronto: trascina la freccia verso destra';
+  else hint = serveMode === 'auto' ? 'Pronto: rilascia il dito per servire' : 'Pronto: trascina la freccia verso destra';
 
   // audio
   pourSound(stream ? flow : 0, stream ? stream.kind : '', clamp((beer + foam)/CAP_UP, 0, 1));
@@ -713,17 +747,37 @@ function drawBG(){
   const pw = Math.min(150, puddle / CAP_UP * 420);
   if (pw > 2){ ctx.fillStyle = 'rgba(242,168,29,.85)'; ctx.beginPath(); ctx.ellipse(480, 506, pw, 5, 0, 0, 7); ctx.fill(); }
 }
+function tapUnit(cx, s, ang, dot){                          // singola spina (flat): centro in x=0, spout che finisce a y~158
+  const M = '#c9ced9', MD = '#aab1c2', MK = '#8e96aa';
+  ctx.save(); ctx.translate(cx, 0); ctx.scale(s, s);
+  ctx.fillStyle = M; rr(-15, -200, 30, 280, 6); ctx.fill();                 // colonna (sale oltre il bordo alto)
+  ctx.fillStyle = MD; ctx.fillRect(-15, -200, 9, 280);
+  ctx.fillStyle = MK; circ(0, 44, 36);                                      // medaglione
+  ctx.fillStyle = '#eef1f6'; circ(0, 44, 30);
+  ctx.fillStyle = dot; circ(0, 58, 11); ctx.fillStyle = 'rgba(255,255,255,.85)'; circ(0, 55, 5);
+  ctx.fillStyle = M; poly([[-22,84],[22,84],[32,112],[-32,112]]); ctx.fill();   // testa
+  ctx.fillStyle = MD; poly([[-22,84],[-12,84],[-18,112],[-32,112]]); ctx.fill();
+  ctx.fillStyle = MK; rr(-34, 106, 68, 12, 5); ctx.fill();
+  ctx.fillStyle = M; poly([[-13,118],[13,118],[10,146],[-10,146]]); ctx.fill(); // beccuccio
+  ctx.fillStyle = MD; poly([[-13,118],[-5,118],[-4,146],[-10,146]]); ctx.fill();
+  ctx.fillStyle = MK; rr(-15, 144, 30, 15, 4); ctx.fill();
+  ctx.save(); ctx.translate(0, 92); ctx.rotate(ang);                        // leva nera
+  ctx.fillStyle = MK; rr(-11, -12, 22, 14, 4); ctx.fill();
+  ctx.fillStyle = '#1b1d25'; poly([[-7,-10],[7,-10],[14,-68],[-14,-68]]); ctx.fill(); circ(0, -68, 14);
+  ctx.restore();
+  ctx.restore();
+}
 function drawTap(){
-  ctx.fillStyle = '#c9ced9'; rr(440, -20, 80, 130, 10); ctx.fill();
-  ctx.fillStyle = '#aab1c2'; ctx.fillRect(440, -20, 24, 130);
-  ctx.fillStyle = BEER; circ(480, 62, 17); ctx.fillStyle = FOAM; circ(480, 62, 9);
-  ctx.fillStyle = '#8e96aa'; poly([[462,110],[498,110],[492,152],[468,152]]); ctx.fill();
-  ctx.fillStyle = '#6f7790'; rr(466, 150, 28, 9, 3); ctx.fill();
-  // leva
-  ctx.save(); ctx.translate(520, 80); ctx.rotate(-Math.PI/2 + flow*1.1);
-  ctx.fillStyle = '#8e96aa'; rr(-6, -6, 74, 12, 6); ctx.fill();
-  ctx.fillStyle = BEER; circ(68, 0, 11); ctx.restore();
-  ctx.fillStyle = '#6f7790'; circ(520, 80, 9);
+  // una spina per ogni birra sbloccata, in ordine di carta; la torre scorre cosi' che quella giusta stia sopra il boccale
+  const n = unlockedFor(day), sp = LAND ? 72 : 58, sc = LAND ? .78 : .7, tp = Math.min(towerPos < 0 ? 0 : towerPos, n - 1);
+  const xs = [];
+  for (let i = 0; i < n; i++) xs.push(480 + (i - tp)*sp);
+  if (n > 1){ ctx.fillStyle = '#aab1c2'; rr(xs[0] - 10, 84, xs[n-1] - xs[0] + 20, 16, 7); ctx.fill(); }   // traversa
+  const order = xs.map((x, i) => i).sort((a, b) => Math.abs(xs[b] - 480) - Math.abs(xs[a] - 480));      // la piu' vicina al centro per ultima (davanti)
+  for (const i of order){
+    const d = Math.min(1, Math.abs(i - tp)), k = 1 - (1 - sc)*d;
+    tapUnit(xs[i], k, i === towerTgt ? flow*0.9 : (i < tp ? -0.12 : 0.12)*d, TYPES[TYPE_ORDER[i]].beer);
+  }
 }
 const enterOffsetWorld = () => glassEnter <= 0 ? 0 : -(480 + G.wmax + 24 - (LAND ? 0 : PX0)) * Math.pow(glassEnter, 3);   // ease-out cubico: parte veloce, arriva morbido
 function drawGlass(carry){
@@ -860,52 +914,48 @@ function drawFace(x, y, r, f, mood){
   ctx.stroke();
   ctx.restore();
 }
+function drawBubble(bx, by, w, h, tailY, frac, waiting){   // fumetto = barra di pazienza: si riempie di rosso dal basso verso l'alto
+  const tail = () => poly([[bx+1, by+tailY], [bx-9, by+tailY+9], [bx+1, by+tailY+18]]);
+  ctx.fillStyle = '#fff8e8'; rr(bx, by, w, h, 11); ctx.fill(); tail(); ctx.fill();
+  if (waiting && frac < 1){
+    ctx.save(); ctx.beginPath(); ctx.rect(bx - 14, by + h*frac, w + 16, h + 2); ctx.clip();
+    ctx.fillStyle = frac < .2 && Math.sin(time*14) > 0 ? '#ff9a9a' : '#ff6b6b';
+    rr(bx, by, w, h, 11); ctx.fill(); tail(); ctx.fill();
+    ctx.restore();
+  }
+}
+function selCard(r, rad){                          // cliente attivo: bordo verde sul riquadro + etichetta PROSSIMO
+  ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, rad); ctx.stroke();
+  ctx.fillStyle = '#3ddc97'; rr(r.x + r.w/2 - 32, r.y - 8, 64, 15, 7); ctx.fill();
+  text('PROSSIMO', r.x + r.w/2, r.y + 3, 9, '#10172b', 'center', 900);
+}
 function drawCustomers(){
   if (!LAND) return drawCustomersPortrait();
-  const seats = seatCount();
   for (let i = 0; i < 4; i++){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
+    if (!c) continue;
     ctx.save();
-    if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.35)' : 'rgba(16,23,43,.72)';
-    rr(r.x, r.y, r.w, r.h, 14); ctx.fill();
-    if (!c){
-      text(i >= seats ? 'posto chiuso' : 'posto libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700);
-      ctx.restore(); continue;
-    }
+    if (c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
+    ctx.fillStyle = 'rgba(16,23,43,.78)'; rr(r.x, r.y, r.w, r.h, 14); ctx.fill();
     const frac = c.t / c.max, waiting = c.state === 'waiting';
     const ox = waiting && frac < 0.2 ? Math.sin(time*40)*1.5 : 0;
     const mood = waiting ? (frac > .55 ? 'happy' : frac > .25 ? 'neutral' : 'angry') : c.state === 'happy' ? 'happy' : c.state === 'meh' ? 'neutral' : 'angry';
-    drawFace(r.x + 34 + ox, r.y + 46, 25, c.face, mood);
-    if (sel === c.id && waiting) text('PROSSIMO', r.x + 8, r.y + 14, 9, '#3ddc97', 'left', 800);
-    // fumetto
-    const bx = r.x + 68, by = r.y + 8;
-    ctx.fillStyle = '#fff8e8'; rr(bx, by, 98, 66, 11); ctx.fill();
-    poly([[bx+1, by+24], [bx-9, by+33], [bx+1, by+42]]); ctx.fill();
+    drawFace(r.x + 37 + ox, r.y + 45, 25, c.face, mood);
+    const bx = r.x + 74, by = r.y + 12;
+    drawBubble(bx, by, 98, 66, 24, frac, waiting);
     if (waiting){
       const T = TYPES[c.type];
       miniGlass(bx + 9, by + 11, T, c.fingers);
       text(T.name, bx + 43, by + 30, 13, '#3a2a1a', 'left', 800, 52);
-      text(fmt(c.fingers) + ' dita', bx + 43, by + 49, 12, '#8a6a44', 'left', 700, 52);
+      text(fmt(c.fingers) + ' dita', bx + 43, by + 49, 12, '#5a3a14', 'left', 700, 52);
     } else if (c.popup && c.popup.text){
       text(c.popup.text, bx + 49, by + 38, 13, '#b33', 'center', 800, 88);
     } else if (c.popup){
       text('+' + c.popup.score, bx + 49, by + 36, 26, '#3a2a1a', 'center', 900);
       text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + 49, by + 57, 15, '#e59a10', 'center', 800);
+      text(`schiuma ${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, bx + 49, by + 80, 11, '#c9d4f2', 'center', 700);
     }
-    if (waiting){
-      const bw = r.w - 20;
-      ctx.fillStyle = '#3a4670'; rr(r.x + 10, r.y + 86, bw, 12, 6); ctx.fill();
-      let col = frac > .5 ? '#3ddc97' : frac > .25 ? '#f2a81d' : '#ff5d5d';
-      if (frac < .2 && Math.sin(time*14) > 0) col = '#ff9a9a';
-      ctx.fillStyle = col; rr(r.x + 10, r.y + 86, Math.max(8, bw*frac), 12, 6); ctx.fill();
-    } else if (c.popup && !c.popup.text){
-      text(`schiuma ${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, r.x + r.w/2, r.y + 98, 12, '#c9d4f2', 'center', 700);
-    }
-    // bordi
-    if (sel === c.id && waiting){
-      ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, 14); ctx.stroke();
-    }
+    if (sel === c.id && waiting) selCard(r, 14);
     ctx.restore();
   }
 }
@@ -928,7 +978,7 @@ function drawHUD(){
   text(`GIORNATA ${day}`, 248, 48, 12, '#8fa0c8', 'right');
   text(`${Math.round(dispScore)} / ${dayTarget}`, 248, 74, 20, dayCleared ? '#3ddc97' : '#fff', 'right');
   drawProgress(40, 86, 208, 14);
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < 1 + lvl('life'); i++) heart(46 + i*26, 120, 9, i < lives ? '#ff5d6c' : '#3a4670');
   const n = unlockedCount();
   for (let i = 0; i < TYPE_ORDER.length; i++){
     const T = TYPES[TYPE_ORDER[i]], x = 152 + i*20;
@@ -967,8 +1017,20 @@ function drawHUD(){
 /* ============================ EFFETTI (coordinate canvas) ============================ */
 const CONF = ['#ffd54a', '#ff6b6b', '#4cd7a0', '#58a6ff', '#c792ea', '#ffffff'];
 function celebrate(c, stars){
-  if (stars < 2) return;
   const r = slotRect(c.slot), cx = r.x + r.w/2, cy = r.y + r.h/2, big = stars >= 3;
+  if (stars < 2){                                   // birra mediocre (1 stella) o pessima (0): animazione negativa, piu' forte se pessima
+    const bad = stars === 0, RED = '255,93,93';
+    fx.push({ t: 'flash', x: r.x, y: r.y, w: r.w, h: r.h, life: .6, max: .6, rgb: RED });
+    fx.push({ t: 'ring', x: cx, y: cy, size: bad ? 100 : 60, life: .6, max: .6, rgb: RED });
+    for (let i = 0, n = bad ? 22 : 10; i < n; i++){            // gocce/pezzetti che cadono verso il basso
+      const a = Math.PI/2 + (Math.random() - .5)*2.2, v = 60 + Math.random()*(bad ? 200 : 120), life = .9 + Math.random()*.7;
+      fx.push({ t: 'conf', x: cx + (Math.random() - .5)*40, y: cy, vx: Math.cos(a)*v, vy: Math.sin(a)*v*.5, g: 520, life, max: life, col: pick(['#ff5d5d', '#8fa0c8', '#5d6b94']),
+                w: 4 + Math.random()*4, h: 6 + Math.random()*5, rot: Math.random()*6, vr: (Math.random() - .5)*8 });
+    }
+    fx.push({ t: 'text', x: Math.min(Math.max(cx, 110), CW - 110), y: cy + 6, vy: 40, life: 1.3, max: 1.3, text: bad ? 'Bleah!' : 'Mah...', col: '#ff8a8a', size: bad ? 26 : 20 });
+    if (bad) shake = Math.max(shake, .25);
+    return;
+  }
   fx.push({ t: 'flash', x: r.x, y: r.y, w: r.w, h: r.h, life: .7, max: .7 });
   fx.push({ t: 'ring', x: cx, y: cy, size: big ? 120 : 75, life: .7, max: .7 });
   if (big) fx.push({ t: 'ring', x: cx, y: cy, size: 190, life: 1, max: 1, delay: .15 });
@@ -1007,9 +1069,9 @@ function drawFx(){
     const k = 1 - p.life/p.max, fade = clamp(p.life/.4, 0, 1);
     ctx.save();
     if (p.t === 'flash'){
-      ctx.fillStyle = `rgba(255,213,74,${(1 - k)*.5})`; rr(p.x, p.y, p.w, p.h, 14); ctx.fill();
+      ctx.fillStyle = `rgba(${p.rgb || '255,213,74'},${(1 - k)*.5})`; rr(p.x, p.y, p.w, p.h, 14); ctx.fill();
     } else if (p.t === 'ring'){
-      ctx.strokeStyle = `rgba(255,213,74,${1 - k})`; ctx.lineWidth = 7*(1 - k) + 1;
+      ctx.strokeStyle = `rgba(${p.rgb || '255,213,74'},${1 - k})`; ctx.lineWidth = 7*(1 - k) + 1;
       ctx.beginPath(); ctx.arc(p.x, p.y, p.size*Math.sqrt(k), 0, 7); ctx.stroke();
     } else if (p.t === 'conf'){
       ctx.globalAlpha = fade; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.col; ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
@@ -1070,33 +1132,59 @@ function outlined(str, x, y, size, color, align){    // testo con contorno scuro
 const wx = x => LAND ? x : (x - PX0)*PZ, wy = y => LAND ? y : PSY + (y - PY0)*PZ;      // mondo -> canvas
 function drawServeBubble(){                          // freccia SERVI verso destra, ben staccata dal boccale e all'altezza del centro della birra
   serveRect = null;
-  if (serveAnim <= 0.02) return;
+  if (serveMode === 'auto' || serveAnim <= 0.02) return;      // in automatico al posto della freccia c'è la scritta sopra il joystick (drawReleaseLabel)
   const bw = 176, bh = 66, head = 44, edge = wx(480 + G.wmax + (G.handle ? 64 : 0) + 14) + 34;
-  const x = Math.min(edge, (LAND ? 768 : CW - 8) - bw) + (slideActive ? slideOff : 0);
+  const x = Math.min(edge, (LAND ? 768 : CW - 8) - bw) + ((slideActive || autoServe) ? slideOff : 0);
   const cyc = wy(G.my + (G.bot - G.top)/2), y = cyc - bh/2, k = serveAnim;          // centro verticale del boccale
   const sc = 0.6 + 0.4*(1 - Math.pow(1 - k, 3)) + 0.04*k*Math.sin(time*7), tx = x, ty = cyc;
   const arrow = () => poly([[x, y + 10], [x + bw - head, y + 10], [x + bw - head, y], [x + bw, cyc], [x + bw - head, y + bh], [x + bw - head, y + bh - 10], [x, y + bh - 10]]);
   ctx.save(); ctx.globalAlpha = k; ctx.translate(tx, ty); ctx.scale(sc, sc); ctx.translate(-tx, -ty);
   ctx.lineJoin = 'round'; ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#3ddc97';
   arrow(); ctx.fill(); ctx.stroke();
-  if (slideActive && slideOff > 1){                                                   // avanzamento del trascinamento
+  if ((slideActive || autoServe) && slideOff > 1){                                    // avanzamento del trascinamento
     ctx.save(); arrow(); ctx.clip(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.fillRect(x, y, bw*Math.min(1, slideOff/SLIDE_DIST), bh); ctx.restore();
   }
   text('SERVI', x + (bw - head)/2 + 4, cyc + 9, 26, '#10172b', 'center', 900);
   ctx.restore();
   serveRect = { x, y, w: bw, h: bh };
 }
+const floatGeom = () => { const rx = 106, ry = 62, W2 = 10; return { rx, ry, W2, ax: clamp(floatX0 - 20, 14 + W2, CW - rx - 14 - W2), ay: Math.max(floatY0 - 34 - ry - W2, 14 + W2) }; };   // sopra il dito, così non lo copre
+function drawReleaseLabel(){                        // modalità servizio automatico: scritta sopra il joystick (flottante: sopra la T che segue il dito; fisso: sopra il pannello)
+  if (serveMode !== 'auto' || serveAnim <= 0.02 || mode !== 'playing') return;
+  let cx, cy;
+  if (joyMode === 'float'){ if (!touching) return; const f = floatGeom(); cx = f.ax + f.rx/2; cy = f.ay - f.W2 - 24; }
+  else { cx = LAND ? 676 + (CW - 684)/2 + 4 : CW/2; cy = (LAND ? 436 : CH - JZ_H + 4) - 22; }
+  ctx.font = '900 17px system-ui,sans-serif';
+  const w = ctx.measureText('Rilascia per servire').width + 30, k = 0.7 + 0.3*(1 - Math.pow(1 - serveAnim, 3));
+  cx = clamp(cx, w/2 + 8, CW - w/2 - 8);
+  ctx.save(); ctx.globalAlpha = serveAnim; ctx.translate(cx, cy); ctx.scale(k, k);
+  ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.fillStyle = '#3ddc97';
+  rr(-w/2, -17, w, 34, 17); ctx.fill(); ctx.stroke();
+  text('Rilascia per servire', 0, 6, 17, '#10172b', 'center', 900);
+  ctx.restore();
+}
 function drawFloatJoystick(){                       // modalità "ovunque": una piccola T compare sopra il punto in cui hai appoggiato il dito e ne segue il movimento
-  const rx = 96, ry = 56, W2 = 9, KR = 14;
-  const ax = clamp(floatX0 - 20, 14 + W2, CW - rx - 14 - W2), ay = Math.max(floatY0 - 34 - ry - W2, 14 + W2);   // sopra il dito, così non lo copre
+  const { rx, ry, W2, ax, ay } = floatGeom(), KR = 15;
   const kx = ax + joyRX*rx, ky = ay + joyRY*ry;
   ctx.lineJoin = 'round'; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.6)';
   ctx.fillStyle = 'rgba(16,23,43,.85)'; rr(ax - W2, ay - W2, rx + 2*W2, 2*W2, W2); ctx.fill(); ctx.stroke();                 // barra (inclinazione)
   if (kx - ax > 1){ ctx.fillStyle = '#ffd54a'; rr(ax - W2 + 3, ay - W2 + 3, kx - ax + 2*W2 - 6, 2*W2 - 6, W2 - 3); ctx.fill(); }
   ctx.fillStyle = 'rgba(16,23,43,.85)'; rr(kx - W2, ay - W2, 2*W2, ry + 2*W2, W2); ctx.fill(); ctx.stroke();                 // gamba (flusso)
   if (ky - ay > 1){ ctx.fillStyle = '#3d9be9'; rr(kx - W2 + 3, ay - W2 + 3, 2*W2 - 6, ky - ay + 2*W2 - 6, W2 - 3); ctx.fill(); }
+  flowChevrons(kx, ky + KR*.6, W2, ay + ry + W2);
   ctx.fillStyle = '#ffd54a'; circ(kx, ky, KR); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(kx, ky, KR, 0, 7); ctx.stroke();
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(floatX0, floatY0, 12, 0, 7); ctx.stroke();   // dove hai appoggiato il dito
+}
+function flowChevrons(kx, ky, W2, yEnd){            // gamba del flusso: freccette che scorrono di continuo verso il basso (invito a trascinare giù)
+  if (mode !== 'playing' || yEnd - ky < 6) return;
+  const step = W2*1.35, off = (time*W2*1.8) % step, hw = W2*.5, hh = W2*.42;
+  ctx.save(); rr(kx - W2 + 3, ky, 2*W2 - 6, yEnd - ky, W2 - 3); ctx.clip();
+  ctx.lineWidth = Math.max(2.5, W2*.2); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let y = ky + off - step; y < yEnd + step; y += step){
+    const a = Math.min(1, Math.max(0, (y - ky)/step))*Math.min(1, Math.max(0, (yEnd - y)/step));   // dissolvenza in alto e in basso
+    ctx.strokeStyle = `rgba(61,155,233,${.75*a})`; ctx.beginPath(); ctx.moveTo(kx - hw, y - hh); ctx.lineTo(kx, y + hh); ctx.lineTo(kx + hw, y - hh); ctx.stroke();
+  }
+  ctx.restore();
 }
 function drawJoystickZone(){                         // T fissa nell'area riservata in basso: barra = inclinazione, gamba = flusso
   const y0 = CH - JZ_H, g = jzGeom(), W2 = Math.max(11, (LAND ? 18 : 22) * fixedScale), KR = Math.max(17, (LAND ? 30 : 38) * fixedScale);   // spessore e cursore scalano con la T
@@ -1109,6 +1197,7 @@ function drawJoystickZone(){                         // T fissa nell'area riserv
   if (kx - g.ax > 1){ ctx.fillStyle = '#ffd54a'; rr(g.ax - W2 + 5, g.ay - W2 + 5, kx - g.ax + 2*W2 - 10, 2*W2 - 10, W2 - 5); ctx.fill(); }
   ctx.fillStyle = '#1d2742'; rr(kx - W2, g.ay - W2, 2*W2, g.ry + 2*W2, W2); ctx.fill(); ctx.stroke();   // gamba (flusso)
   if (ky - g.ay > 1){ ctx.fillStyle = '#3d9be9'; rr(kx - W2 + 5, g.ay - W2 + 5, 2*W2 - 10, ky - g.ay + 2*W2 - 10, W2 - 5); ctx.fill(); }
+  flowChevrons(kx, ky + KR*.6, W2, g.ay + g.ry + W2);
   if (!touching && mode === 'playing' && fillFrac() < SERVE_MIN){                              // invito: anello che pulsa sul cursore
     ctx.strokeStyle = `rgba(255,213,74,${.55 + .35*Math.sin(time*5)})`; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(kx, ky, KR + 8 + 4*Math.sin(time*5), 0, 7); ctx.stroke();
   }
@@ -1125,41 +1214,27 @@ function drawToast(cx = 480, ty = 546){
   text(toast.text, cx, ty + 24, 15, '#fff', 'center', 800); ctx.globalAlpha = 1;
 }
 function drawCustomersPortrait(){
-  const seats = seatCount();
   for (let i = 0; i < 4; i++){
     const r = slotRect(i), c = customers.find(k => k.slot === i);
+    if (!c) continue;
     ctx.save();
-    if (c && c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
-    ctx.fillStyle = i >= seats ? 'rgba(16,23,43,.62)' : 'rgba(16,23,43,.9)';
-    rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
-    if (!c){ text(i >= seats ? 'chiuso' : 'libero', r.x + r.w/2, r.y + r.h/2 + 4, 12, '#5d6b94', 'center', 700); ctx.restore(); continue; }
+    if (c.state !== 'waiting') ctx.globalAlpha = clamp(c.leave/0.6, 0, 1);
+    ctx.fillStyle = 'rgba(16,23,43,.9)'; rr(r.x, r.y, r.w, r.h, 12); ctx.fill();
     const frac = c.t / c.max, waiting = c.state === 'waiting';
     const ox = waiting && frac < 0.2 ? Math.sin(time*40)*1.5 : 0;
     const mood = waiting ? (frac > .55 ? 'happy' : frac > .25 ? 'neutral' : 'angry') : c.state === 'happy' ? 'happy' : c.state === 'meh' ? 'neutral' : 'angry';
-    drawFace(r.x + 27 + ox, r.y + 34, 20, c.face, mood);
-    const bx = r.x + 52, by = r.y + 8;
-    ctx.fillStyle = '#fff8e8'; rr(bx, by, 54, 52, 10); ctx.fill();
-    poly([[bx+1, by+20], [bx-8, by+27], [bx+1, by+34]]); ctx.fill();
+    drawFace(r.x + 32 + ox, r.y + 34, 23, c.face, mood);
+    const bw = 44, bh = 54, bx = r.x + r.w - bw - 8, by = r.y + 7;
+    drawBubble(bx, by, bw, bh, 18, frac, waiting);
     if (waiting){
-      miniGlass(bx + 16, by + 6, TYPES[c.type], c.fingers, 22, 40);
-      text(`${TYPES[c.type].name} · ${fmt(c.fingers)}`, r.x + r.w/2, r.y + 82, 12, '#fff', 'center', 800, r.w - 8);
-      const bw = r.w - 16;
-      ctx.fillStyle = '#3a4670'; rr(r.x + 8, r.y + 92, bw, 10, 5); ctx.fill();
-      let col = frac > .5 ? '#3ddc97' : frac > .25 ? '#f2a81d' : '#ff5d5d';
-      if (frac < .2 && Math.sin(time*14) > 0) col = '#ff9a9a';
-      ctx.fillStyle = col; rr(r.x + 8, r.y + 92, Math.max(8, bw*frac), 10, 5); ctx.fill();
+      miniGlass(bx + bw/2 - 11, by + 7, TYPES[c.type], c.fingers, 22, 40);
     } else if (c.popup && c.popup.text){
-      text(c.popup.text, bx + 27, by + 30, 11, '#b33', 'center', 800, 54);
+      text(c.popup.text, bx + bw/2, by + 32, 10, '#b33', 'center', 800, bw - 4);
     } else if (c.popup){
-      text('+' + c.popup.score, bx + 27, by + 28, 20, '#3a2a1a', 'center', 900);
-      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + 27, by + 46, 12, '#e59a10', 'center', 800);
-      text(`${fmt(c.popup.foamH/FINGER)} / ${fmt(c.popup.target/FINGER)} dita`, r.x + r.w/2, r.y + 86, 11, '#c9d4f2', 'center', 700, r.w - 8);
+      text('+' + c.popup.score, bx + bw/2, by + 28, 18, '#3a2a1a', 'center', 900);
+      text('★'.repeat(c.popup.stars) + '☆'.repeat(3 - c.popup.stars), bx + bw/2, by + 46, 10, '#e59a10', 'center', 800);
     }
-    if (sel === c.id && waiting){
-      ctx.strokeStyle = '#3ddc97'; ctx.lineWidth = 3; rr(r.x, r.y, r.w, r.h, 12); ctx.stroke();
-      ctx.fillStyle = '#3ddc97'; rr(r.x + r.w/2 - 32, r.y - 8, 64, 15, 7); ctx.fill();
-      text('PROSSIMO', r.x + r.w/2, r.y + 3, 9, '#10172b', 'center', 900);
-    }
+    if (sel === c.id && waiting) selCard(r, 12);
     ctx.restore();
   }
 }
@@ -1169,7 +1244,7 @@ function drawStrip(){                               // telefono: striscia in cim
   text('MONETE', 22, 150, 9, '#8fa0c8'); text(String(wallet), 22, 169, 19, '#fff');
   text(`GIORNATA ${day}`, 92, 150, 9, '#8fa0c8'); text(`${Math.round(dispScore)} / ${dayTarget}`, 296, 150, 9, dayCleared ? '#3ddc97' : '#fff', 'right', 800);
   drawProgress(92, 156, 204, 14);
-  for (let i = 0; i < 3 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
+  for (let i = 0; i < 1 + lvl('life'); i++) heart(322 + i*22, 163, 8, i < lives ? '#ff5d6c' : '#3a4670');
   ctx.restore();
 }
 function drawMetersStrip(){               // schiumometro: striscia in alto nella scena, a destra del rubinetto
@@ -1220,12 +1295,13 @@ function draw(){
     drawCustomersPortrait();
     drawStrip();
     if (lvl('meter')) drawMetersStrip();
-    drawToast(300, PSY + 60);
+    drawToast(CW/2, 362);
     drawServeBubble();
   }
   if (mode !== 'menu' && joyMode === 'fixed') drawJoystickZone();       // con il joystick ovunque resta solo la piccola T che appare sotto il dito
   if (!LAND) drawHintPill(CW/2, CH - 34);                                    // suggerimento: centrato e più in basso possibile, sopra al pannello del joystick
   if (joyMode === 'float' && touching && mode === 'playing') drawFloatJoystick();
+  drawReleaseLabel();
   drawFx();
   ctx.restore();
 }
@@ -1255,6 +1331,10 @@ ovb.addEventListener('click', e => {
     applyLayout();                                       // senza il joystick grande la scena può usare tutto lo schermo
     ovb.innerHTML = pauseHTML();                       // ridisegna il menu: il cursore della scala compare solo con il joystick ovunque
   }
+  if (e.target.closest('[data-act="servemode"]')){
+    serveMode = serveMode === 'auto' ? 'drag' : 'auto'; localStorage.setItem('birra_servemode', serveMode); autoServe = false; autoP = 0;
+    ovb.innerHTML = pauseHTML();
+  }
   if (e.target.closest('[data-act="help"]')){ showOverlay('Istruzioni', helpHTML(), 'Indietro', showPause); return; }
 });
 ovbtn.addEventListener('click', () => { audioInit(); if (ac && ac.state === 'suspended') ac.resume(); ovbtn.blur(); if (ovAction) ovAction(); });
@@ -1274,14 +1354,16 @@ const inJoyZone = (px, py) => LAND ? (px >= 676 && py >= 436) : py >= CH - JZ_H;
 cv.addEventListener('pointerdown', e => {
   audioInit();
   if (!ov.classList.contains('hidden') || mode !== 'playing') return;
+  if (autoServe && autoP > 0) return;                    // il boccale sta già scorrendo verso il cliente
+  autoServe = false; autoP = 0;                          // un nuovo tocco annulla il servizio automatico in attesa
   const cap = () => { try { cv.setPointerCapture(e.pointerId); } catch(err){} };
   const r = cv.getBoundingClientRect(), px = (e.clientX - r.left) * CW / r.width, py = (e.clientY - r.top) * CH / r.height;
   const onBubble = serveRect && px >= serveRect.x - 8 && px <= serveRect.x + serveRect.w + 8 && py >= serveRect.y - 8 && py <= serveRect.y + serveRect.h + 8;
   const onGlass = px >= wx(480 - G.wmax - 10) && px <= wx(480 + G.wmax + (G.handle ? 64 : 0) + 10) && py >= wy(G.my) - 12 && py <= wy(TRAY_Y) + 6;
-  if (serveAnim > 0.6 && !slideActive && (onBubble || onGlass)){        // inizia lo slide: trascina la birra verso destra
+  if (serveMode !== 'auto' && serveAnim > 0.6 && !slideActive && (onBubble || onGlass)){        // inizia lo slide: trascina la birra verso destra
     slideActive = true; slideX0 = px; slideOff = 0; cap(); return;
   }
-  const startJoy = joyMode === 'float' ? !onGlass : inJoyZone(px, py);   // float: ovunque tranne sul boccale; fixed: solo sulla T in basso
+  const startJoy = joyMode === 'float' ? (serveMode === 'auto' || !onGlass) : inJoyZone(px, py);   // float: ovunque (sul boccale solo in classico, dove serve a trascinarlo); fixed: solo sulla T in basso
   if (startJoy){ touching = true; setJoystick(e, true); cap(); }
 });
 function slideMove(e){                              // il boccale segue il dito verso destra: raggiunta la distanza, la birra viene consegnata
@@ -1293,7 +1375,11 @@ function slideMove(e){                              // il boccale segue il dito 
   }
 }
 cv.addEventListener('pointermove', e => { if (slideActive) slideMove(e); else if (touching) setJoystick(e); });
-['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, () => { touching = false; slideActive = false; }));
+['pointerup','pointercancel'].forEach(ev => cv.addEventListener(ev, e => {
+  const wasJoy = touching;
+  touching = false; slideActive = false;
+  if (serveMode === 'auto' && wasJoy && e.type === 'pointerup' && mode === 'playing' && canServe()){ autoServe = true; autoP = 0; }   // rilasci il dito con la birra servibile: parte il servizio
+}));
 cv.addEventListener('contextmenu', e => e.preventDefault());
 document.getElementById('pause').addEventListener('click', e => { e.target.blur(); pauseGame(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
@@ -1427,7 +1513,7 @@ function applyLayout(){
     // il mondo parte dal bordo alto dello schermo (come su desktop): la spillatrice si vede intera, la parte alta passa dietro ai pannelli di clienti, vite e monete
     PZ = clamp((CH - jzReserve() - 45) / 500, 0.85, 1.5);          // la vaschetta (y 500) sta appena sopra il joystick
     PX0 = 480 - 0.30 * (CW / PZ);                           // il boccale a riposo sta a circa il 30% da sinistra
-    PY0 = PSY / PZ;                                         // y mondo 0 = bordo alto del canvas
+    PY0 = PSY / PZ - (joyMode === 'float' ? 75 : 0);        // y mondo 0 = bordo alto del canvas; col joystick flottante la scena scende (~15%) per mostrare meglio le spillatrici
   } else { CH = 600; PZ = 1.25; PX0 = 365; PY0 = 112; }
   VIS_R = port ? PX0 + CW / PZ - 4 : 742;
   for (const k in GLASSES) GLASSES[k].maxT = maxTiltFor(GLASSES[k]);
